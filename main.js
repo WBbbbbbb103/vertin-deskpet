@@ -390,12 +390,32 @@ function restoreBounds() {
   const area = display.workArea;
   const width = size.width;
   const height = size.height;
-  const x = Math.round(Math.min(Math.max(b.x, area.x - width + 110), area.x + area.width - 80));
+  // The visible pet sits near the right edge of the transparent window.
+  // Keep the whole window inside the horizontal work area, not just a strip
+  // of it, so a saved position from a larger monitor cannot strand the pet
+  // off the right side of the screen.
+  const x = Math.round(Math.min(Math.max(b.x, area.x - width + 330), area.x + area.width - width - 12));
   // The visible pet lives about 346px down inside the transparent window.
   // Allow the window to sit above the work area so the pet itself can be
   // placed in the upper half of the screen.
   const y = Math.round(Math.min(Math.max(b.y, area.y - height + 120), area.y + area.height - 80));
   return { x, y, width, height };
+}
+
+function ensureWindowOnScreen() {
+  if (!win || win.isDestroyed()) return;
+  const b = win.getBounds();
+  const display = screen.getDisplayNearestPoint({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
+  const area = display.workArea;
+  const x = Math.round(Math.min(
+    Math.max(b.x, area.x - b.width + 330),
+    area.x + area.width - b.width - 12,
+  ));
+  const y = Math.round(Math.min(
+    Math.max(b.y, area.y - b.height + 120),
+    area.y + area.height - b.height,
+  ));
+  if (x !== b.x || y !== b.y) win.setPosition(x, y, false);
 }
 
 function updateStartupEnabled() {
@@ -562,6 +582,7 @@ function showPet(focus = false) {
     createWindow();
     return;
   }
+  ensureWindowOnScreen();
   if (win.isMinimized()) win.restore();
   win.setOpacity(1);
   win.show();
