@@ -1,0 +1,6 @@
+Source Han Serif SC
+Files: SourceHanSerifSC-Regular.otf, SourceHanSerifSC-Medium.otf
+Version: 2.001
+Copyright 2017-2022 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'.
+License: SIL Open Font License 1.1. See OFL-SourceHanSerif.txt.
+Obtained from the official Adobe font package / Source Han Serif release files.

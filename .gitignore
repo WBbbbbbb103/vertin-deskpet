@@ -1,0 +1,16 @@
+node_modules/
+release/
+dist/
+backups/
+userdata/
+.userdata*/
+.tmp/
+.env
+.env.*
+.npmrc
+llm-config.json
+window-state.json
+*.log
+*.lnk
+Thumbs.db
+.DS_Store

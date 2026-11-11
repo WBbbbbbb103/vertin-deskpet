@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'none'; media-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>维尔汀 · 雨夜书桌</title>
+  <link rel="preload" href="../assets/fonts/SourceHanSerifSC-Regular.otf" as="font" type="font/otf" crossorigin>
+  <link rel="preload" href="../assets/fonts/SourceHanSerifSC-Medium.otf" as="font" type="font/otf" crossorigin>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main id="app">
+    <canvas id="world" aria-hidden="true"></canvas>
+
+    <button id="focusChip" class="focus-chip paper interactive" type="button" hidden aria-label="打开专注计时器">
+      <span class="chip-dot"></span>
+      <span id="focusChipTime" class="chip-time">25:00</span>
+      <span id="focusChipMode" class="chip-mode">专注</span>
+    </button>
+
+    <aside id="clockNote" class="clock-note paper interactive" aria-label="当前时间" hidden>
+      <button id="clockClose" class="clock-close" type="button" aria-label="关闭时钟便笺"></button>
+      <div class="clock-row">
+        <span id="clock" class="clock-time">23:01</span>
+        <span class="weather-tag">雨夜</span>
+      </div>
+      <div class="clock-meta">
+        <span id="dateText">11月9日 · 周日</span>
+        <span id="ambientText">雨声很轻</span>
+      </div>
+    </aside>
+
+    <div id="petHit" aria-label="维尔汀。可以拖动、摸头或点击礼帽。"></div>
+
+    <section id="bubble" class="dialog paper interactive" role="status" aria-live="polite" aria-hidden="true" hidden>
+      <div class="dialog-head">
+        <span class="dialog-diamond" aria-hidden="true"></span>
+        <span class="dialog-name">维尔汀</span>
+        <button id="bubbleClose" class="dialog-close" type="button" aria-label="关闭对话">
+          <span class="icon" data-icon="close"></span>
+        </button>
+      </div>
+      <div id="bubbleText" class="dialog-text"></div>
+      <span class="dialog-tail" aria-hidden="true"></span>
+    </section>
+
+    <nav id="dock" class="tool-dock interactive" aria-label="桌宠功能" hidden>
+      <button class="tool-btn" type="button" data-action="chat" data-tip="对话 · C" aria-label="和维尔汀说话">
+        <span class="icon" data-icon="chat"></span>
+      </button>
+      <button class="tool-btn" type="button" data-action="focus" data-tip="专注 · F" aria-label="打开专注计时器">
+        <span class="icon" data-icon="hourglass"></span>
+        <span id="focusBadge" class="tool-badge" hidden>25</span>
+      </button>
+      <button class="tool-btn" type="button" data-action="game" data-tip="拾雨 · G" aria-label="开始拾雨小游戏">
+        <span class="icon" data-icon="droplet"></span>
+      </button>
+      <button class="tool-btn" type="button" data-action="records" data-tip="旧日记录 · R" aria-label="打开旧日记录">
+        <span class="icon" data-icon="book"></span>
+      </button>
+      <span class="tool-divider" aria-hidden="true"></span>
+      <button class="tool-btn" type="button" data-action="more" data-tip="更多" aria-label="更多功能" aria-haspopup="menu" aria-expanded="false">
+        <span class="icon" data-icon="more"></span>
+      </button>
+    </nav>
+
+    <button id="menuToggle" class="menu-toggle paper interactive" type="button"
+      aria-label="打开功能菜单" aria-controls="dock" aria-expanded="false" data-tip="功能菜单">
+      <span class="icon" data-icon="menu"></span>
+    </button>
+
+    <div id="quickBar" class="quick-bar interactive" role="group" aria-label="常用功能">
+      <button class="quick-btn" type="button" data-quick-action="chat" aria-label="对话" data-tip="对话">
+        <span class="icon" data-icon="chat"></span>
+      </button>
+      <button class="quick-btn" type="button" data-quick-action="focus" aria-label="专注" data-tip="专注">
+        <span class="icon" data-icon="hourglass"></span>
+      </button>
+      <button class="quick-btn" type="button" data-quick-action="game" aria-label="拾雨" data-tip="拾雨">
+        <span class="icon" data-icon="droplet"></span>
+      </button>
+      <button class="quick-btn" type="button" data-quick-action="records" aria-label="旧日记录" data-tip="旧日记录">
+        <span class="icon" data-icon="book"></span>
+      </button>
+    </div>
+
+    <div id="contextMenu" class="more-menu paper interactive" hidden role="menu" aria-label="更多功能"></div>
+
+    <div id="composer" class="composer paper interactive" hidden>
+      <span class="composer-mark" aria-hidden="true"></span>
+      <input id="chatInput" type="text" maxlength="80" autocomplete="off" spellcheck="false" placeholder="和维尔汀说点什么……" aria-label="和维尔汀说话">
+      <button id="sendBtn" class="send-btn" type="button" aria-label="发送">
+        <span class="icon" data-icon="send"></span>
+      </button>
+    </div>
+
+    <div id="gameHud" class="game-hud interactive" hidden>
+      <span class="game-stat game-drop-stat" aria-label="纯雨滴数量">
+        <span class="game-drop-icon clear" aria-hidden="true"></span><b id="gameClear">0</b><small class="game-unit">纯</small>
+      </span>
+      <span class="game-stat game-drop-stat" aria-label="粹雨滴数量">
+        <span class="game-drop-icon crystal" aria-hidden="true"></span><b id="gameCrystal">0</b><small class="game-unit">粹</small>
+      </span>
+      <span id="gameCombo" class="game-combo" hidden>×2</span>
+      <span class="game-divider"></span>
+      <span class="game-stat"><span class="icon" data-icon="hourglass"></span><b id="gameClock">20</b>s</span>
+      <button id="gamePause" class="game-icon-btn" type="button" aria-label="暂停游戏" data-tip="暂停">
+        <span class="icon" data-icon="pause"></span>
+      </button>
+      <button id="gameSound" class="game-icon-btn" type="button" aria-label="关闭音效" data-tip="音效">
+        <span class="icon" data-icon="volume"></span>
+      </button>
+      <button id="gameStop" class="game-stop" type="button">结束</button>
+    </div>
+    <div id="gameCheer" class="game-cheer" aria-hidden="true"></div>
+    <div id="gameLayer" aria-hidden="true"></div>
+
+    <section id="gameResult" class="game-result paper interactive" hidden aria-live="polite">
+      <span class="note-label">本局记录</span>
+      <strong id="gameResultScore">0 <small>滴</small></strong>
+      <div class="result-drops">
+        <span><i class="game-drop-icon clear" aria-hidden="true"></i><b id="resultClear">0</b> 纯雨滴</span>
+        <span><i class="game-drop-icon crystal" aria-hidden="true"></i><b id="resultCrystal">0</b> 粹雨滴</span>
+      </div>
+      <span id="resultCombo" class="result-combo" hidden>最高连击 ×2</span>
+      <p id="gameResultNote">雨滴已经收进箱子。</p>
+      <div class="result-actions">
+        <button id="gameAgain" class="primary-btn" type="button">再来一次</button>
+        <button id="gameClose" class="ghost-btn" type="button">收下</button>
+      </div>
+    </section>
+
+    <div id="panelLayer" class="panel-layer interactive" hidden>
+      <section id="panel" class="panel paper" role="dialog" aria-modal="true" aria-labelledby="panelTitle"></section>
+    </div>
+
+    <div id="toasts" class="toasts" aria-live="polite"></div>
+
+    <div id="loading" class="loading">
+      <div class="loading-card paper">
+        <span class="loading-mark" aria-hidden="true"></span>
+        <span>正在翻开记录</span>
+        <span class="loading-dots"><i></i><i></i><i></i></span>
+      </div>
+    </div>
+
+    <div id="fatal" class="fatal" hidden>
+      <strong>怀表停住了。</strong>
+      <p id="fatalText">场景没有成功启动。请确认后重试。</p>
+    </div>
+  </main>
+  <noscript><div class="noscript">需要启用 JavaScript 才能见到维尔汀。</div></noscript>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
