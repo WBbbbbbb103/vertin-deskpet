@@ -12,7 +12,7 @@ export const DOSSIERS_V3 = {
     archiveName: '康斯坦丁',
     nameZh: '康斯坦丁',
     nameEn: 'Constantine',
-    aliases: { zh: ['基金会副会长'], en: ['Deputy Director'] },
+    aliases: { zh: ['基金会副会长'], en: [] },
     title: { zh: '关门的副会长', en: 'The Deputy Director' },
     rarity: null,
     element: { zh: '—', en: '—' },

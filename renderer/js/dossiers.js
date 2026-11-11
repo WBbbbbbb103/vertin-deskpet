@@ -8,6 +8,7 @@
 
 import { DOSSIERS_V2 } from './dossiers.v2.js';
 import { DOSSIERS_V3 } from './dossiers.v3.js';
+import { DOSSIERS_V4 } from './dossiers.v4.js';
 
 export const CHARACTER_DOSSIERS = {
   thirtyseven: {
@@ -1313,7 +1314,7 @@ export const CHARACTER_DOSSIERS = {
   },
 };
 
-Object.assign(CHARACTER_DOSSIERS, DOSSIERS_V2, DOSSIERS_V3);
+Object.assign(CHARACTER_DOSSIERS, DOSSIERS_V2, DOSSIERS_V3, DOSSIERS_V4);
 
 export function dossierForName(name) {
   return Object.values(CHARACTER_DOSSIERS).find((dossier) => dossier.archiveName === name) || null;

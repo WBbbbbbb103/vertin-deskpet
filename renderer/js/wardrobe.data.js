@@ -333,24 +333,6 @@ export const WARDROBE_ITEMS = [
     asset: 'night-lantern',
     action: { type: 'lantern', zh: '提起灯', en: 'Lift the lantern' },
   },
-  {
-    id: 'outfit-field',
-    slot: 'outfit',
-    group: 'outfit',
-    name: { zh: '外勤调查服', en: 'Field Investigator' },
-    desc: {
-      zh: '暖灰短风衣、深蓝礼帽、斜挎相机带。衣摆比司辰大衣短，走路时更容易看见脚步。',
-      en: 'A warm grey short trench, a deep navy hat and a diagonal camera strap. The hem is shorter than the Timekeeper coat, so the steps show when she walks.',
-    },
-    lore: {
-      zh: '这是她离开桌子、走进现场时穿的一套。口袋里通常还有一支铅笔和一张折过两次的纸。',
-      en: 'This is what she wears when she leaves the desk and walks into a scene. There is usually a pencil and a twice-folded sheet of paper in the pocket.',
-    },
-    unlock: { type: 'level', target: 27 },
-    icon: 'camera',
-    asset: 'outfit-field',
-    fullSprite: true,
-  },
 ];
 
 export function wardrobeItemById(id) {

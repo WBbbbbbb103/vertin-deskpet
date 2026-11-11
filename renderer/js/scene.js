@@ -26,7 +26,6 @@ const WARDROBE_URLS = {
   'field-camera': new URL('../../assets/wardrobe/field-camera.png', import.meta.url).href,
   'case-photo': new URL('../../assets/wardrobe/case-photo.png', import.meta.url).href,
   'night-lantern': new URL('../../assets/wardrobe/night-lantern.png', import.meta.url).href,
-  'outfit-field': new URL('../../assets/wardrobe/outfit-field.png', import.meta.url).href,
 };
 
 const HEART = [

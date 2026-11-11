@@ -1192,7 +1192,10 @@ function wardrobeProgress(item) {
 function wardrobeUnlockText(item) {
   const p = wardrobeProgress(item);
   if (p.type === 'default') return isEN() ? 'Owned from the start' : '初始拥有';
-  if (p.type === 'level') return `Lv.${p.current} / Lv.${p.target}`;
+  if (p.type === 'level') {
+    if (p.unlocked) return isEN() ? `Unlocked at Lv.${p.target}` : `Lv.${p.target} 解锁`;
+    return `Lv.${p.current} / Lv.${p.target}`;
+  }
   const unit = {
     droplets: isEN() ? 'Time Rain' : '时之雨',
     affection: isEN() ? 'affection' : '亲密度',
@@ -1512,7 +1515,9 @@ function renderMemoriesPanel() {
   }
   const dossierCount = MEMORY_CHARACTERS.filter((character) => dossierForCharacter(character)).length;
   return `
-    ${panelHead('旧日记录', `${dossierCount} 位有档案 · 共 ${MEMORY_CHARACTERS.length} 位同行者`, '◇')}
+    ${panelHead(isEN() ? 'Old Records' : '旧日记录', isEN()
+      ? `${dossierCount} with dossiers · ${MEMORY_CHARACTERS.length} companions`
+      : `${dossierCount} 位有档案 · 共 ${MEMORY_CHARACTERS.length} 位同行者`, '◇')}
     <p class="memory-intro">${isEN()
       ? `First page lists the ${dossierCount} companions with character dossiers. Search to reach the full roster.`
       : `首页直接列出 ${dossierCount} 位已有人物档案的同行者；搜索可以找到完整 ${MEMORY_CHARACTERS.length} 位名册。`}</p>
@@ -1733,12 +1738,18 @@ function renderDossierPanel() {
   const lines = (dossier.lines || []).map((line) => `<li>${escapeHTML(dossierBi(line))}</li>`).join('');
   const sources = (dossier.sources || []).map((source) => `
     <li><button class="dossier-source-link" type="button" data-dossier-source="${escapeHTML(source.url)}">${escapeHTML(source.label)}</button></li>`).join('');
-  const aliasLabels = (dossier.aliases?.[en ? 'en' : 'zh'] || []).filter((alias) => alias !== dossier.nameEn && alias !== dossier.nameZh);
+  const aliasLabels = (dossier.aliases?.[en ? 'en' : 'zh'] || []).filter((alias) => (
+    alias !== dossier.nameEn
+    && alias !== dossier.nameZh
+    && alias !== dossierBi(dossier.title)
+  ));
+  const displayName = en ? (dossier.nameEn || dossier.nameZh) : dossier.nameZh;
+  const altName = en ? dossier.nameZh : dossier.nameEn;
   return `
-    ${panelHead(en ? 'Character dossier' : '人物档案', `${dossier.nameZh} · ${escapeHTML(dossier.completion?.[en ? 'en' : 'zh'] || (en ? 'deep dossier' : '深度档案'))}`, '◇')}
+    ${panelHead(en ? 'Character dossier' : '人物档案', `${displayName} · ${escapeHTML(dossier.completion?.[en ? 'en' : 'zh'] || (en ? 'deep dossier' : '深度档案'))}`, '◇')}
     <div class="dossier-hero">
-      <strong>${escapeHTML(dossier.nameZh)}</strong>
-      ${dossier.nameEn !== dossier.nameZh ? `<small>${escapeHTML(dossier.nameEn)}</small>` : ''}
+      <strong>${escapeHTML(displayName)}</strong>
+      ${altName && altName !== displayName ? `<small>${escapeHTML(altName)}</small>` : ''}
       <p>${escapeHTML(dossierBi(dossier.title))}${aliasLabels.length ? ` · ${escapeHTML(aliasLabels.join(' / '))}` : ''}</p>
       <div class="dossier-badges">
         <span>${escapeHTML(rarityLabel)}</span>
@@ -1833,7 +1844,7 @@ function renderSettingsPanel() {
       </div>
       ${row('voice', '语音朗读', '用系统中文语音轻轻念出对话。默认关闭。', s.voice)}
     </div>
-    <div class="section-label">陪伴</div>
+    <div class="section-label">${en ? 'Companionship' : '陪伴'}</div>
     <div class="setting-list">
       <div class="setting-row setting-row-stack">
         <div class="setting-copy">
@@ -2602,6 +2613,7 @@ const game = {
   cheerTimer: null,
   combo: 0,
   comboMax: 0,
+  comboBonus: 0,
   lastCollectAt: 0,
   comboTimer: null,
   finishing: false,
@@ -2692,6 +2704,7 @@ function startGame() {
   game.crystalCount = 0;
   game.combo = 0;
   game.comboMax = 0;
+  game.comboBonus = 0;
   game.lastCollectAt = 0;
   game.finishing = false;
   clearTimeout(game.comboTimer);
@@ -2782,6 +2795,7 @@ function collectDrop(button) {
   game.comboMax = Math.max(game.comboMax, game.combo);
   const bonus = game.combo >= 3 ? Math.min(2, Math.floor(game.combo / 3)) : 0;
   const gained = value + bonus;
+  game.comboBonus += bonus;
   game.score += gained;
   if (type === 'crystal') game.crystalCount += 1;
   else game.clearCount += 1;
@@ -2947,16 +2961,19 @@ function finishGameNow(options = {}) {
   if (game.comboMax >= 2) {
     els.resultCombo.hidden = false;
     els.resultCombo.textContent = isEN()
-      ? `Best combo ×${game.comboMax}`
-      : `最高连击 ×${game.comboMax}`;
+      ? `Best combo ×${game.comboMax}${game.comboBonus ? ` · bonus +${game.comboBonus}` : ''}`
+      : `最高连击 ×${game.comboMax}${game.comboBonus ? ` · 加成 +${game.comboBonus}` : ''}`;
   } else {
     els.resultCombo.hidden = true;
   }
   const bothKinds = clearCount > 0 && crystalCount > 0;
+  const comboNote = game.comboBonus
+    ? (isEN() ? ` Combo bonus +${game.comboBonus}.` : ` 连击加成 +${game.comboBonus}。`)
+    : '';
   els.gameResultNote.textContent = score > 0
     ? (bothKinds
-      ? (isNewBest ? '新的记录。两种雨滴都收进箱子了。' : '两种雨滴都收进箱子了。')
-      : (isNewBest ? '新的记录。雨滴已经收进箱子。' : '雨滴已经收进箱子。'))
+      ? (isNewBest ? '新的记录。两种雨滴都收进箱子了。' : '两种雨滴都收进箱子了。') + comboNote
+      : (isNewBest ? '新的记录。雨滴已经收进箱子。' : '雨滴已经收进箱子。') + comboNote)
     : '雨太急了。下次再试试。';
   setDockActive(null);
   if (score > 0) {
@@ -3611,8 +3628,20 @@ function bindStaticEvents() {
   window.addEventListener('beforeunload', saveNow);
 }
 
+function normalizeWardrobe() {
+  const eq = { ...DEFAULT_WARDROBE, ...(state.wardrobe || {}) };
+  for (const key of ['hat', 'coat', 'neck', 'face', 'held', 'case', 'outfit']) {
+    if (!eq[key]) continue;
+    if (!wardrobeItemById(eq[key])) {
+      eq[key] = key === 'hat' ? 'hat' : null;
+    }
+  }
+  state.wardrobe = eq;
+}
+
 function applySettingsToScene() {
   if (!scene) return;
+  normalizeWardrobe();
   scene.setRain(portraitPreview ? false : Boolean(state.settings.rain));
   scene.setWardrobe?.(state.wardrobe || DEFAULT_WARDROBE);
   scene.setPetScale?.(state.settings.petScale ?? 0.25);

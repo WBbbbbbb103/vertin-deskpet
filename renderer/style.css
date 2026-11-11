@@ -2871,13 +2871,11 @@ html[lang="en"] .dialog-text {
 
 .wardrobe-item-copy strong {
   display: block;
-  overflow: hidden;
   color: var(--ink);
   font-size: 13px;
   font-weight: 500;
   line-height: 1.4;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .wardrobe-item-copy small {
