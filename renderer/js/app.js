@@ -2,6 +2,8 @@ import { PetScene } from './scene.js';
 import { PetAudio } from './audio.js';
 import { ARCHIVE_CHARACTERS, ARCHIVE_META, ARCHIVE_NPCS } from './archive.data.js';
 import { CHARACTER_DOSSIERS, dossierForCharacter, dossierForName } from './dossiers.js';
+import { GUEST_CHARACTERS, guestById } from './characters.data.js';
+import { DIALOGUE_EVAL_CASES } from './dialogue.eval.js';
 import {
   DEFAULT_WARDROBE, WARDROBE_GROUPS, WARDROBE_ITEMS, WARDROBE_SLOTS,
   wardrobeItemById, wardrobeItemsForGroup,
@@ -12,6 +14,37 @@ import {
   getChatHints, greetingForHour, levelInfo, levelRoadmap, memoryIntro, memoryName, memorySubtitle,
   memoryText, pickLine, replyTo, setDialogueLanguage,
 } from './dialogue.js';
+
+const MUSICBOX_LEVEL = 8;
+const MUSIC_TRACKS = [
+  {
+    id: 'rain-on-the-case',
+    file: '../assets/music-box/rain-on-the-case.wav',
+    title: { zh: '雨落在箱上', en: 'Rain on the Case' },
+    subtitle: { zh: '音乐盒 · 32 秒循环', en: 'Music box · 32s loop' },
+  },
+  {
+    id: 'page-turns',
+    file: '../assets/music-box/page-turns.wav',
+    title: { zh: '翻页', en: 'The Page Turns' },
+    subtitle: { zh: '音乐盒圆舞曲 · 31 秒循环', en: 'Music-box waltz · 31s loop' },
+  },
+  {
+    id: 'until-rain-stops',
+    file: '../assets/music-box/until-rain-stops.wav',
+    title: { zh: '直到雨停', en: 'Until the Rain Stops' },
+    subtitle: { zh: '氛围音乐盒 · 34 秒循环', en: 'Ambient music box · 34s loop' },
+  },
+];
+const MUSIC_CREDIT = 'Original music-box loops · made locally';
+const MEMORY_CATEGORIES = [
+  { id: 'preference', zh: '偏好', en: 'Preference' },
+  { id: 'project', zh: '正在做', en: 'In progress' },
+  { id: 'date', zh: '重要日期', en: 'Important date' },
+  { id: 'other', zh: '其他', en: 'Other' },
+];
+const MEMORY_CATEGORY_IDS = new Set(MEMORY_CATEGORIES.map((category) => category.id));
+const MAX_PINNED_MEMORIES = 3;
 
 /* -------------------------------------------------------------------------- */
 /* Icons — tiny 16px pixel glyphs, drawn inline so the app stays offline.      */
@@ -41,6 +74,10 @@ const ICONS = {
   play: '<path d="M5 3.2 13 8l-8 4.8V3.2Z" fill="currentColor"/>',
   voice: '<rect x="5" y="2.5" width="6" height="8" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M3.5 8.5a4.5 4.5 0 0 0 9 0M8 13v1.5" fill="none" stroke="currentColor" stroke-width="1.1"/>',
   pin: '<path d="M8 14s4.3-4.3 4.3-7.2A4.3 4.3 0 0 0 3.7 6.8C3.7 9.7 8 14 8 14Z" fill="none" stroke="currentColor" stroke-width="1.2"/><rect x="6.9" y="5.7" width="2.2" height="2.2" fill="currentColor"/>',
+  camera: '<rect x="2.3" y="4.7" width="11.4" height="8.2" fill="none" stroke="currentColor" stroke-width="1.2"/><rect x="5.8" y="3.2" width="4.4" height="1.7" fill="none" stroke="currentColor" stroke-width="1.1"/><circle cx="8" cy="8.8" r="2.3" fill="none" stroke="currentColor" stroke-width="1.2"/><rect x="11.8" y="6.2" width="1" height="1" fill="currentColor"/>',
+  calendar: '<rect x="2.6" y="3.4" width="10.8" height="10" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M2.6 6.2h10.8M5.3 2.2v2.4M10.7 2.2v2.4" fill="none" stroke="currentColor" stroke-width="1.2"/><rect x="5" y="8.1" width="1.5" height="1.5" fill="currentColor"/><rect x="8.2" y="8.1" width="1.5" height="1.5" fill="currentColor"/><rect x="5" y="10.5" width="1.5" height="1.5" fill="currentColor"/>',
+  suitcase: '<rect x="2.5" y="5.2" width="11" height="8.4" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M5.2 5.2V3.8h5.6v1.4M2.5 8.1h11M7.1 8.1h1.8v2.2H7.1z" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M4.2 5.2v8.4M11.8 5.2v8.4" stroke="currentColor" stroke-width="0.8"/>',
+  music: '<path d="M6.1 11.8V4.2l6-1.3v7.4" fill="none" stroke="currentColor" stroke-width="1.2"/><ellipse cx="4.8" cy="12" rx="1.8" ry="1.2" fill="currentColor"/><ellipse cx="10.8" cy="10.4" rx="1.8" ry="1.2" fill="currentColor"/>',
   spark: '<path d="M8 1.5 9.3 6 13.5 8 9.3 10 8 14.5 6.7 10 2.5 8 6.7 6 8 1.5Z" fill="currentColor"/>',
   info: '<rect x="7.2" y="3.5" width="1.6" height="1.6" fill="currentColor"/><rect x="7.1" y="6.7" width="1.8" height="6" fill="currentColor"/><rect x="3" y="2" width="10" height="12" fill="none" stroke="currentColor" stroke-width="1.1"/>',
   check: '<path d="m3 8 3.2 3L13 4" fill="none" stroke="currentColor" stroke-width="1.5"/>',
@@ -78,6 +115,7 @@ function defaultState() {
   return {
     version: 1,
     seenWelcome: false,
+    seenOnboarding: false,
     seenUiHint: false,
     settings: {
       sound: true,
@@ -112,25 +150,58 @@ function defaultState() {
       lastSeenDay: '',
       focusDay: '',
       focusToday: 0,
+      focusTodaySessions: 0,
+      focusDays: {},
       dossiersRead: [],
       today: {
         day: '',
         interactions: 0,
         chats: 0,
         focusMinutes: 0,
+        focusSessions: 0,
         games: 0,
       },
+    },
+    memories: [],
+    wardrobePresets: [null, null, null],
+    photos: [],
+    checkin: {
+      lastClaimDay: '',
+      streak: 0,
+      total: 0,
+      lastReward: null,
+      history: [],
+      milestones: [],
+    },
+    summon: {
+      seen: [],
+      counts: {},
+      lastIds: [],
+      lastAt: 0,
+      total: 0,
+      announced: false,
+    },
+    musicBox: {
+      track: 'rain-on-the-case',
+      volume: 0.35,
+      loop: true,
+      sleepMinutes: 0,
+      announced: false,
     },
     companion: {
       lastSeenAt: 0,
       lastTopic: null,
       lastTopicPromptAt: 0,
+      topics: [],
       recentEvents: [],
       pendingFocus: null,
+      pendingMoment: null,
       lastPhoto: null,
       lastProactiveAt: 0,
       proactiveDay: '',
       proactiveCount: 0,
+      chatTurns: 0,
+      summaries: [],
     },
     focus: {
       mode: 'focus',
@@ -139,6 +210,8 @@ function defaultState() {
       running: false,
       endAt: null,
       task: '',
+      cycle: 0,
+      autoNext: false,
     },
   };
 }
@@ -157,12 +230,37 @@ function mergeState(base, saved) {
   return saved === undefined ? base : saved;
 }
 
+function normalizeMemories(list) {
+  let pinnedCount = 0;
+  return (Array.isArray(list) ? list : [])
+    .filter((memory) => memory && typeof memory.text === 'string' && memory.text.trim())
+    .slice(0, 20)
+    .map((memory) => {
+      let pinned = Boolean(memory.pinned);
+      if (pinned && pinnedCount >= MAX_PINNED_MEMORIES) pinned = false;
+      if (pinned) pinnedCount += 1;
+      return {
+        id: memory.id || `memory-${memory.at || Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+        text: String(memory.text).replace(/\s+/g, ' ').trim().slice(0, 120),
+        at: Number(memory.at) || Date.now(),
+        category: MEMORY_CATEGORY_IDS.has(memory.category) ? memory.category : 'other',
+        pinned,
+      };
+    });
+}
+
 function loadState() {
   const base = defaultState();
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return base;
-    return mergeState(base, JSON.parse(raw));
+    const saved = JSON.parse(raw);
+    const merged = mergeState(base, saved);
+    // Existing installations should not be interrupted by a first-run guide.
+    if (!Object.prototype.hasOwnProperty.call(saved, 'seenOnboarding')) {
+      merged.seenOnboarding = Boolean(saved.seenWelcome);
+    }
+    return merged;
   } catch {
     return base;
   }
@@ -176,6 +274,83 @@ const isEN = () => uiLang() === 'en';
 setDialogueLanguage(uiLang());
 setLanguage(uiLang());
 
+state.memories = Array.isArray(state.memories)
+  ? normalizeMemories(state.memories)
+  : [];
+state.photos = Array.isArray(state.photos) ? state.photos : [];
+state.checkin = {
+  lastClaimDay: '',
+  streak: 0,
+  total: 0,
+  lastReward: null,
+  history: [],
+  milestones: [],
+  ...(state.checkin && typeof state.checkin === 'object' ? state.checkin : {}),
+};
+state.wardrobePresets = Array.isArray(state.wardrobePresets)
+  ? [...state.wardrobePresets, null, null, null].slice(0, 3)
+  : [null, null, null];
+state.companion.topics = Array.isArray(state.companion.topics) ? state.companion.topics : [];
+state.companion.chatTurns = Math.max(0, Math.floor(Number(state.companion.chatTurns) || 0));
+state.companion.summaries = (Array.isArray(state.companion.summaries) ? state.companion.summaries : [])
+  .filter((summary) => summary && typeof summary.text === 'string' && summary.text.trim())
+  .slice(0, 8)
+  .map((summary, index) => ({
+    ...summary,
+    id: summary.id || `summary-${summary.at || Date.now()}-${index}`,
+    at: Number(summary.at) || Date.now(),
+    turns: Math.max(1, Math.floor(Number(summary.turns) || 12)),
+  }));
+state.focus.mode = state.focus.mode === 'break'
+  ? 'shortBreak'
+  : (['focus', 'shortBreak', 'longBreak'].includes(state.focus.mode) ? state.focus.mode : 'focus');
+state.focus.cycle = Math.max(0, Math.min(4, Math.floor(Number(state.focus.cycle) || 0)));
+state.focus.autoNext = Boolean(state.focus.autoNext);
+state.stats.focusTodaySessions = Math.max(0, Math.floor(Number(state.stats.focusTodaySessions) || 0));
+state.stats.focusDays = state.stats.focusDays && typeof state.stats.focusDays === 'object' ? state.stats.focusDays : {};
+for (const [day, minutes] of Object.entries(state.stats.focusDays)) {
+  const safe = Math.max(0, Math.floor(Number(minutes) || 0));
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || !safe) delete state.stats.focusDays[day];
+  else state.stats.focusDays[day] = safe;
+}
+if (state.stats.today && !Number.isFinite(Number(state.stats.today.focusSessions))) {
+  state.stats.today.focusSessions = 0;
+}
+state.summon = {
+  seen: [],
+  counts: {},
+  lastIds: [],
+  lastAt: 0,
+  total: 0,
+  announced: false,
+  ...(state.summon && typeof state.summon === 'object' ? state.summon : {}),
+};
+state.summon.seen = Array.isArray(state.summon.seen)
+  ? state.summon.seen.filter((id) => guestById(id))
+  : [];
+state.summon.lastIds = Array.isArray(state.summon.lastIds) ? state.summon.lastIds.filter((id) => guestById(id)).slice(0, 6) : [];
+state.summon.counts = state.summon.counts && typeof state.summon.counts === 'object' ? state.summon.counts : {};
+state.summon.total = Math.max(0, Math.floor(Number(state.summon.total) || 0));
+state.summon.lastAt = Number(state.summon.lastAt) || 0;
+state.summon.announced = Boolean(state.summon.announced);
+
+state.musicBox = {
+  track: 'rain-on-the-case',
+  volume: 0.35,
+  loop: true,
+  sleepMinutes: 0,
+  announced: false,
+  ...(state.musicBox && typeof state.musicBox === 'object' ? state.musicBox : {}),
+};
+state.musicBox.track = MUSIC_TRACKS.some((track) => track.id === state.musicBox.track)
+  ? state.musicBox.track
+  : MUSIC_TRACKS[0].id;
+state.musicBox.volume = Math.max(0, Math.min(1, Number(state.musicBox.volume) || 0));
+state.musicBox.loop = Boolean(state.musicBox.loop);
+state.musicBox.sleepMinutes = Math.max(0, Math.min(180, Number(state.musicBox.sleepMinutes) || 0));
+state.musicBox.announced = Boolean(state.musicBox.announced);
+
+state.seenOnboarding = Boolean(state.seenOnboarding);
 const oldSeenDay = state.stats.lastSeenDay;
 const isFirstVisit = !state.seenWelcome;
 const previousSeenAt = state.companion.lastSeenAt || 0;
@@ -219,7 +394,7 @@ function saveNow() {
 function touchToday() {
   const key = toDayKey();
   if (!state.stats.today || state.stats.today.day !== key) {
-    state.stats.today = { day: key, interactions: 0, chats: 0, focusMinutes: 0, games: 0 };
+    state.stats.today = { day: key, interactions: 0, chats: 0, focusMinutes: 0, focusSessions: 0, games: 0 };
   }
   return state.stats.today;
 }
@@ -267,6 +442,30 @@ function proactiveDelay(kind = 'idle') {
     : (18 + Math.random() * 27) * 60000;
 }
 
+function queueCompanionMoment(type, data = {}) {
+  state.companion.pendingMoment = { type, at: Date.now(), ...data };
+  saveSoon();
+}
+
+function flushCompanionMoment() {
+  const moment = state.companion.pendingMoment;
+  if (!moment) return;
+  if (panelName || game.active || state.focus.running || bubbleVisible || !els.composer.hidden) return;
+  if (Date.now() - (moment.at || 0) > 20 * 60000) {
+    state.companion.pendingMoment = null;
+    saveSoon();
+    return;
+  }
+  const key = moment.type === 'checkin'
+    ? 'afterCheckin'
+    : (moment.type === 'guest' ? 'afterGuest' : (moment.type === 'focus' ? 'afterFocus' : ''));
+  state.companion.pendingMoment = null;
+  saveSoon();
+  if (!key || state.settings.proactive === 'quiet') return;
+  say(pickLine(key), { duration: 6200 });
+  markProactiveSpeech();
+}
+
 function companionEventText(event) {
   if (!event) return '';
   const en = isEN();
@@ -290,6 +489,12 @@ function companionEventText(event) {
     const date = new Date(event.at || Date.now()).toLocaleDateString(en ? 'en-US' : 'zh-CN', { month: 'numeric', day: 'numeric' });
     return en ? `Photo kept · ${date}` : `留影 · ${date}`;
   }
+  if (event.type === 'checkin') {
+    return en ? `Checked in · day ${event.streak || 1}` : `签到 · 第 ${event.streak || 1} 天`;
+  }
+  if (event.type === 'guest') {
+    return en ? `A guest visited · ${event.name}` : `来客到访 · ${event.name}`;
+  }
   return '';
 }
 
@@ -297,8 +502,11 @@ function rememberTopic(text) {
   if (!state.settings.rememberTopic) return;
   const topic = String(text || '').replace(/\s+/g, ' ').trim();
   if (topic.length < 4) return;
-  state.companion.lastTopic = { text: topic.slice(0, 60), at: Date.now() };
-  recordCompanionEvent('chat_topic', { topic: topic.slice(0, 60) });
+  const entry = { text: topic.slice(0, 60), at: Date.now() };
+  state.companion.lastTopic = entry;
+  const previous = Array.isArray(state.companion.topics) ? state.companion.topics : [];
+  state.companion.topics = [entry, ...previous.filter((item) => item?.text !== entry.text)].slice(0, 3);
+  recordCompanionEvent('chat_topic', { topic: entry.text });
 }
 
 function escapeHTML(value) {
@@ -325,7 +533,31 @@ const els = {
   ambientText: $('#ambientText'),
   bubble: $('#bubble'),
   bubbleText: $('#bubbleText'),
+  suitcase: $('#suitcase'),
+  musicBox: $('#musicBox'),
+  summonStage: $('#summonStage'),
+  summonBackdrop: $('#summonBackdrop'),
+  summonPortrait: $('#summonPortrait'),
+  summonParallax: $('#summonParallax'),
+  summonFigure: $('#summonFigure'),
+  guestSparkles: $('#guestSparkles'),
+  summonImage: $('#summonImage'),
+  summonName: $('#summonName'),
+  summonTitle: $('#summonTitle'),
+  summonLine: $('#summonLine'),
+  summonEyebrow: $('#summonEyebrow'),
+  summonDossier: $('#summonDossier'),
+  summonAgain: $('#summonAgain'),
+  summonClose: $('#summonClose'),
+  summonDismiss: $('#summonDismiss'),
   bubbleClose: $('#bubbleClose'),
+  memoryPrompt: $('#memoryPrompt'),
+  memoryPromptText: $('#memoryPromptText'),
+  memoryPromptInput: $('#memoryPromptInput'),
+  memoryPromptCategory: $('#memoryPromptCategory'),
+  memoryRememberBtn: $('#memoryRememberBtn'),
+  memoryEditBtn: $('#memoryEditBtn'),
+  memoryForgetBtn: $('#memoryForgetBtn'),
   petHit: $('#petHit'),
   dock: $('#dock'),
   menuToggle: $('#menuToggle'),
@@ -362,12 +594,52 @@ const els = {
   contextMenu: $('#contextMenu'),
   toasts: $('#toasts'),
   loading: $('#loading'),
+  onboarding: $('#onboarding'),
+  onboardingStep: $('#onboardingStep'),
+  onboardingArt: $('#onboardingArt'),
+  onboardingTitle: $('#onboardingTitle'),
+  onboardingBody: $('#onboardingBody'),
+  onboardingDots: $('#onboardingDots'),
+  onboardingSkip: $('#onboardingSkip'),
+  onboardingNext: $('#onboardingNext'),
   fatal: $('#fatal'),
   fatalText: $('#fatalText'),
 };
 
 const audio = new PetAudio();
 audio.setVolume(state.settings.volume);
+
+const musicAudio = new Audio();
+musicAudio.preload = 'metadata';
+musicAudio.volume = state.musicBox.volume;
+musicAudio.loop = state.musicBox.loop;
+let musicPlaying = false;
+let musicSleepTimer = null;
+let musicSleepEnds = 0;
+
+musicAudio.addEventListener('play', () => {
+  musicPlaying = true;
+  els.musicBox?.classList.add('is-playing');
+  updateMusicProgress();
+});
+musicAudio.addEventListener('pause', () => {
+  musicPlaying = false;
+  els.musicBox?.classList.remove('is-playing');
+  updateMusicProgress();
+});
+musicAudio.addEventListener('timeupdate', updateMusicProgress);
+musicAudio.addEventListener('loadedmetadata', updateMusicProgress);
+musicAudio.addEventListener('ended', () => {
+  musicPlaying = false;
+  updateMusicProgress();
+});
+musicAudio.addEventListener('error', () => {
+  musicPlaying = false;
+  updateMusicProgress();
+  if (panelName === 'musicbox') {
+    toast(isEN() ? 'The paper roll is stuck. Check the audio file.' : '纸带卡住了。请检查音频文件。', 'info', 3200);
+  }
+});
 audio.setVoice(state.settings.voice);
 audio.setLanguage?.(uiLang());
 bridge.setLanguage?.(uiLang());
@@ -381,6 +653,9 @@ let bubbleVisible = false;
 let bubbleTypingTimer = null;
 let bubbleHideTimer = null;
 let bubbleHoldUntil = 0;
+let pendingMemoryCandidate = null;
+let memoryEditing = false;
+let memoryEditingId = null;
 let lastTapAt = 0;
 let lastTapX = 0;
 let lastTapY = 0;
@@ -394,6 +669,8 @@ let idleActionTimer = null;
 let lastLandingAt = 0;
 let lastFocusFollowUpAt = 0;
 let focusTick = null;
+let focusAutoTimer = null;
+let lastFocusTraySyncAt = 0;
 let lastAmbientAt = 0;
 let quitArmed = false;
 let lastChatAffectionAt = 0;
@@ -446,6 +723,7 @@ function setDockActive(action) {
 
 function updateDockActive() {
   if (panelName === 'focus') return setDockActive('focus');
+  if (panelName === 'checkin') return setDockActive('checkin');
   if (!els.composer.hidden) return setDockActive('chat');
   if (game.active) return setDockActive('game');
   if (panelName || !els.contextMenu.hidden) return setDockActive('more');
@@ -493,6 +771,99 @@ function showHelpHint() {
   setToolsOpen(false);
   openPanel('settings', { about: true });
   toast('左键摸摸 · 右键打开工具条 · 拖动移动位置', 'info', 5200);
+}
+
+let onboardingOpen = false;
+let onboardingStepIndex = 0;
+
+function onboardingSteps() {
+  return isEN()
+    ? [
+      {
+        art: '↔',
+        title: 'Keep me at the edge of the desk',
+        body: 'Drag Vertin to move her. The position is remembered, and she will not block your work.',
+        note: 'You can also drag her out of the way whenever the desk gets crowded.',
+      },
+      {
+        art: '☰',
+        title: 'Everything is behind this menu',
+        body: 'Right-click Vertin or click the menu button beside her. Chat, focus, check-in, wardrobe and records live there.',
+        note: 'The small bar under her also keeps the four most-used actions close.',
+      },
+      {
+        art: 'V',
+        title: 'If you cannot find me',
+        body: 'Press Ctrl + Shift + V, or use the tray menu. “Reset position” brings her back to the lower-right corner.',
+        note: 'Portable build: your data stays in the userdata folder beside VertinPet.exe. Copy it with the app when moving.',
+      },
+    ]
+    : [
+      {
+        art: '↔',
+        title: '把我放在桌边',
+        body: '按住维尔汀拖动，位置会记住。她不会挡住你的工作。',
+        note: '桌面太挤时，也可以随时把她拖到别的角落。',
+      },
+      {
+        art: '☰',
+        title: '需要什么，就点这里',
+        body: '右键维尔汀，或点她右侧的菜单按钮。对话、专注、签到、衣橱和旧日记录都在里面。',
+        note: '角色下方的小快捷条也保留了四个最常用的入口。',
+      },
+      {
+        art: 'V',
+        title: '找不到我时',
+        body: '按 Ctrl + Shift + V，或从系统托盘找她。托盘里的「回到屏幕右下角」会把她放回原位。',
+        note: '便携版的数据保存在 VertinPet.exe 旁边的 userdata 文件夹；换电脑时连同它一起复制。',
+      },
+    ];
+}
+
+function renderOnboarding() {
+  const steps = onboardingSteps();
+  const step = steps[onboardingStepIndex] || steps[0];
+  els.onboardingStep.textContent = `${String(onboardingStepIndex + 1).padStart(2, '0')} / ${String(steps.length).padStart(2, '0')}`;
+  els.onboardingArt.textContent = step.art;
+  els.onboardingTitle.textContent = step.title;
+  els.onboardingBody.textContent = step.body;
+  const note = els.onboarding.querySelector('.onboarding-note');
+  if (note) note.textContent = step.note || '';
+  els.onboardingDots.innerHTML = steps.map((_, index) => `<i class="${index === onboardingStepIndex ? 'is-active' : ''}"></i>`).join('');
+  els.onboardingSkip.textContent = isEN() ? 'Skip' : '跳过';
+  els.onboardingNext.textContent = onboardingStepIndex >= steps.length - 1
+    ? (isEN() ? 'Start' : '开始使用')
+    : (isEN() ? 'Next' : '下一步');
+}
+
+function openOnboarding({ force = false } = {}) {
+  if (!els.onboarding) return;
+  if (!force && (state.seenOnboarding || runtime.capture || portraitPreview)) return;
+  onboardingOpen = true;
+  onboardingStepIndex = 0;
+  document.body.classList.add('is-onboarding');
+  els.onboarding.hidden = false;
+  setIgnoreMouse(false);
+  syncHitRegions();
+  renderOnboarding();
+  bridge.ensureVisible?.();
+}
+
+function closeOnboarding() {
+  if (!onboardingOpen) return;
+  onboardingOpen = false;
+  state.seenOnboarding = true;
+  saveNow();
+  document.body.classList.remove('is-onboarding');
+  els.onboarding.hidden = true;
+  syncHitRegions();
+  setTimeout(() => recalcMousePassthrough(), 60);
+}
+
+function maybeShowOnboarding() {
+  if (state.seenOnboarding || runtime.capture || portraitPreview) return false;
+  openOnboarding();
+  return true;
 }
 
 function maybeShowFirstHint() {
@@ -583,6 +954,60 @@ function positionPetUi() {
   els.menuToggle.style.right = 'auto';
   els.menuToggle.style.bottom = 'auto';
 
+  if (!els.suitcase.hidden) {
+    const sw = els.suitcase.offsetWidth || 42;
+    const sh = els.suitcase.offsetHeight || 42;
+    let sx = layout.x - sw - 2;
+    let sy = layout.y + layout.size - sh - 8;
+    if (sx < edge) sx = layout.x + layout.size + 2;
+    sx = Math.max(edge, Math.min(innerWidth - sw - edge, sx));
+    sy = Math.max(edge, Math.min(innerHeight - sh - edge, sy));
+    els.suitcase.style.left = `${Math.round(sx)}px`;
+    els.suitcase.style.top = `${Math.round(sy)}px`;
+    els.suitcase.style.right = 'auto';
+    els.suitcase.style.bottom = 'auto';
+  }
+
+  if (!els.focusChip.hidden) {
+    const cw = els.focusChip.offsetWidth || 104;
+    const ch = els.focusChip.offsetHeight || 27;
+    let cx = layout.x + layout.size + 4;
+    let cy = layout.y + 2;
+    if (cx + cw > innerWidth - edge) cx = layout.x - cw - 4;
+    cx = Math.max(edge, Math.min(innerWidth - cw - edge, cx));
+    cy = Math.max(edge, Math.min(innerHeight - ch - edge, cy));
+    els.focusChip.style.left = `${Math.round(cx)}px`;
+    els.focusChip.style.top = `${Math.round(cy)}px`;
+    els.focusChip.style.right = 'auto';
+  }
+
+  if (!els.musicBox.hidden) {
+    const mbw = els.musicBox.offsetWidth || 36;
+    const mbh = els.musicBox.offsetHeight || 36;
+    let mbx = layout.x - mbw - 2;
+    let mby = layout.y + layout.size - mbh - 8;
+    if (!els.suitcase.hidden) {
+      const sx = Number.parseFloat(els.suitcase.style.left) || (layout.x - 42);
+      const sy = Number.parseFloat(els.suitcase.style.top) || (layout.y + layout.size - 42);
+      mbx = sx - mbw - 2;
+      mby = sy + (42 - mbh) / 2;
+      if (mbx < edge) {
+        mbx = sx;
+        mby = sy - mbh - 2;
+      }
+      if (mby < edge) {
+        mbx = layout.x + layout.size + 2;
+        mby = layout.y + layout.size - mbh - 8;
+      }
+    }
+    mbx = Math.max(edge, Math.min(innerWidth - mbw - edge, mbx));
+    mby = Math.max(edge, Math.min(innerHeight - mbh - edge, mby));
+    els.musicBox.style.left = `${Math.round(mbx)}px`;
+    els.musicBox.style.top = `${Math.round(mby)}px`;
+    els.musicBox.style.right = 'auto';
+    els.musicBox.style.bottom = 'auto';
+  }
+
   if (!els.dock.hidden) {
     const dw = els.dock.offsetWidth || 160;
     const dh = els.dock.offsetHeight || 38;
@@ -609,7 +1034,12 @@ function syncHitRegions() {
     if (r.width < 1 || r.height < 1) return;
     regions.push({ left: r.left, top: r.top, width: r.width, height: r.height });
   };
+  add(els.onboarding);
   add(els.petHit);
+  add(els.suitcase);
+  add(els.musicBox);
+  add(els.summonStage);
+
   add(els.menuToggle);
   add(els.dock);
   add(els.clockNote);
@@ -648,6 +1078,7 @@ function elShow() {
 
 function hideBubble(immediate = false) {
   if (!bubbleVisible && els.bubble.hidden) return;
+  hideMemoryPrompt();
   clearTimeout(bubbleHideTimer);
   clearInterval(bubbleTypingTimer);
   bubbleVisible = false;
@@ -679,11 +1110,112 @@ function scheduleBubbleHide(delay) {
   }, delay);
 }
 
+function syncMemoryPromptChrome() {
+  const en = isEN();
+  const label = els.memoryPrompt?.querySelector('.memory-prompt-label');
+  const note = els.memoryPrompt?.querySelector('.memory-prompt-note');
+  if (label) label.textContent = en ? 'Remember this?' : '要记住这件事吗？';
+  if (note) note.textContent = en
+    ? 'Stored on this computer only. You can delete it in Settings.'
+    : '只保存在本机。可以随时在设置里删除。';
+  if (els.memoryRememberBtn) els.memoryRememberBtn.textContent = memoryEditing ? (en ? 'Save' : '保存') : (en ? 'Remember' : '记住');
+  if (els.memoryEditBtn) els.memoryEditBtn.textContent = memoryEditing ? (en ? 'Cancel' : '取消') : (en ? 'Edit' : '修改');
+  if (els.memoryForgetBtn) els.memoryForgetBtn.textContent = en ? 'Ignore' : '忽略';
+  if (els.memoryPromptCategory) {
+    [...els.memoryPromptCategory.options].forEach((option) => {
+      option.textContent = memoryCategoryLabel(option.value);
+    });
+  }
+}
+
+function hideMemoryPrompt() {
+  if (!els.memoryPrompt) return;
+  pendingMemoryCandidate = null;
+  memoryEditing = false;
+  els.memoryPrompt.hidden = true;
+  els.memoryPromptInput.hidden = true;
+  els.memoryPromptText.hidden = false;
+  els.memoryPromptInput.value = '';
+  if (els.memoryPromptCategory) els.memoryPromptCategory.value = 'other';
+  syncMemoryPromptChrome();
+  syncHitRegions();
+}
+
+function showMemoryPrompt(candidate) {
+  const text = String(candidate || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+  if (!text || !els.memoryPrompt) return;
+  if (state.memories.some((memory) => memory.text.toLowerCase() === text.toLowerCase())) return;
+  pendingMemoryCandidate = text;
+  memoryEditing = false;
+  els.memoryPromptText.textContent = text;
+  els.memoryPromptText.hidden = false;
+  els.memoryPromptInput.hidden = true;
+  els.memoryPromptInput.value = text;
+  if (els.memoryPromptCategory) els.memoryPromptCategory.value = 'other';
+  els.memoryPrompt.hidden = false;
+  syncMemoryPromptChrome();
+  if (els.bubble.hidden) showBubble();
+  syncHitRegions();
+}
+
+function saveMemoryCandidate() {
+  const text = (memoryEditing && els.memoryPromptInput
+    ? els.memoryPromptInput.value
+    : pendingMemoryCandidate || els.memoryPromptText.textContent || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 120);
+  if (text.length < 4) {
+    toast(isEN() ? 'That is a little too short.' : '这句话太短了，再留具体一点。', 'info', 2200);
+    return;
+  }
+  if (state.memories.some((memory) => memory.text.toLowerCase() === text.toLowerCase())) {
+    toast(isEN() ? 'That is already kept locally.' : '这件事已经记在本地了。', 'info', 2200);
+    hideMemoryPrompt();
+    return;
+  }
+  if (state.memories.length >= 20) {
+    toast(isEN() ? 'Local memory is full (20). Delete one in Settings first.' : '本地记忆最多 20 条，先到设置里删掉一条。', 'info', 3600);
+    return;
+  }
+  const category = MEMORY_CATEGORY_IDS.has(els.memoryPromptCategory?.value)
+    ? els.memoryPromptCategory.value
+    : 'other';
+  state.memories = [
+    {
+      id: `memory-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      text,
+      at: Date.now(),
+      category,
+      pinned: false,
+    },
+    ...state.memories,
+  ].slice(0, 20);
+  saveNow();
+  hideMemoryPrompt();
+  toast(isEN() ? 'Remembered. Stored on this computer only.' : '记住了。只保存在这台电脑上。', 'success', 2800);
+  if (panelName === 'settings') renderPanel('settings');
+}
+
+function editMemoryCandidate() {
+  if (!els.memoryPrompt) return;
+  memoryEditing = !memoryEditing;
+  els.memoryPromptText.hidden = memoryEditing;
+  els.memoryPromptInput.hidden = !memoryEditing;
+  if (memoryEditing) {
+    els.memoryPromptInput.value = pendingMemoryCandidate || els.memoryPromptText.textContent || '';
+    els.memoryPromptInput.focus();
+    els.memoryPromptInput.select();
+  }
+  syncMemoryPromptChrome();
+}
+
 function say(text, options = {}) {
   if (!text) return;
   const {
     duration = 0, voice = true, hint, typewriter = true, sticky = false,
   } = options;
+  hideMemoryPrompt();
   clearTimeout(bubbleHideTimer);
   clearInterval(bubbleTypingTimer);
   showBubble();
@@ -729,6 +1261,8 @@ function updateStatus() {
     renderPanel('profile');
     els.panel.scrollTop = scrollTop;
   }
+  syncSummonVisibility();
+  syncMusicBoxVisibility();
 }
 
 function addAffection(amount, { silent = false } = {}) {
@@ -792,14 +1326,36 @@ function itemUnlocked(item) {
 /* Focus timer                                                                */
 /* -------------------------------------------------------------------------- */
 
-const FOCUS_PRESETS = { focus: [15, 25, 45], break: [5, 10] };
+const FOCUS_PRESETS = {
+  focus: [15, 25, 45, 60, 90, 120],
+  shortBreak: [5, 10],
+  longBreak: [15, 20],
+};
+const FOCUS_CYCLE_LENGTH = 4;
+
+function normalizeFocusMode(mode) {
+  if (mode === 'break') return 'shortBreak';
+  return ['focus', 'shortBreak', 'longBreak'].includes(mode) ? mode : 'focus';
+}
+
+function isBreakMode(mode = state.focus.mode) {
+  return mode === 'shortBreak' || mode === 'longBreak';
+}
 
 function focusModeLabel(mode = state.focus.mode) {
-  return mode === 'break' ? '小憩' : '专注';
+  if (mode === 'longBreak') return isEN() ? 'Long break' : '长休';
+  if (mode === 'shortBreak') return isEN() ? 'Short break' : '小憩';
+  return isEN() ? 'Focus' : '专注';
 }
 
 function focusModeChinese(mode = state.focus.mode) {
-  return mode === 'break' ? '小憩' : '专注';
+  return focusModeLabel(mode);
+}
+
+function focusModeShort(mode = state.focus.mode) {
+  if (mode === 'longBreak') return isEN() ? 'Long' : '长休';
+  if (mode === 'shortBreak') return isEN() ? 'Break' : '小憩';
+  return isEN() ? 'Focus' : '专注';
 }
 
 function focusShouldShowChip() {
@@ -818,10 +1374,11 @@ function updateFocusChip() {
     return;
   }
   els.focusChipTime.textContent = formatClock(f.remaining);
-  els.focusChipMode.textContent = f.running ? focusModeChinese() : '暂停';
+  els.focusChipMode.textContent = f.running ? focusModeChinese() : (isEN() ? 'Paused' : '暂停');
   els.focusBadge.hidden = false;
   els.focusBadge.textContent = String(Math.max(1, Math.ceil(f.remaining / 60)));
   document.title = `${formatClock(f.remaining)} · 维尔汀`;
+  positionPetUi();
 }
 
 function updateFocusPanelLive() {
@@ -837,22 +1394,66 @@ function updateFocusPanelLive() {
     const circumference = 2 * Math.PI * 62;
     const ratio = Math.max(0, Math.min(1, f.duration ? f.remaining / f.duration : 0));
     ring.style.strokeDashoffset = String(circumference * (1 - ratio));
-    ring.classList.toggle('break', f.mode === 'break');
+    ring.classList.toggle('break', isBreakMode(f.mode));
   }
   if (startBtn) {
-    startBtn.textContent = f.running ? '暂停计时' : (f.remaining < f.duration ? '继续计时' : (f.mode === 'break' ? '开始小憩' : '开始专注'));
+    startBtn.textContent = f.running
+      ? (isEN() ? 'Pause' : '暂停计时')
+      : (f.remaining < f.duration
+        ? (isEN() ? 'Resume' : '继续计时')
+        : (f.mode === 'longBreak'
+          ? (isEN() ? 'Start long break' : '开始长休')
+          : (f.mode === 'shortBreak' ? (isEN() ? 'Start break' : '开始小憩') : (isEN() ? 'Start focus' : '开始专注'))));
   }
   const todayEl = $('#focusToday', els.panel);
   const totalEl = $('#focusTotal', els.panel);
+  const todaySessionsEl = $('#focusTodaySessions', els.panel);
   if (todayEl) todayEl.textContent = String(state.stats.focusToday || 0);
   if (totalEl) totalEl.textContent = String(state.stats.focusMinutes || 0);
+  if (todaySessionsEl) todaySessionsEl.textContent = String(state.stats.focusTodaySessions || 0);
+}
+
+function syncFocusTray() {
+  const f = state.focus;
+  bridge.setFocusTray?.({
+    running: Boolean(f.running),
+    paused: !f.running && f.remaining > 0 && f.remaining < f.duration,
+    mode: normalizeFocusMode(f.mode),
+    remaining: Math.max(0, Math.ceil(Number(f.remaining) || 0)),
+    duration: Math.max(0, Math.ceil(Number(f.duration) || 0)),
+  });
 }
 
 function updateFocusViews() {
   updateFocusChip();
   updateFocusPanelLive();
   updateDockActive();
+  syncFocusTray();
   saveSoon();
+}
+
+function skipFocusPhase() {
+  const f = state.focus;
+  clearTimeout(focusAutoTimer);
+  const wasFocus = normalizeFocusMode(f.mode) === 'focus';
+  f.running = false;
+  f.endAt = null;
+  f.remaining = 0;
+  scene?.setFocus(false);
+  if (wasFocus) {
+    f.mode = 'shortBreak';
+    f.duration = FOCUS_PRESETS.shortBreak[0] * 60;
+  } else {
+    if (f.mode === 'longBreak') f.cycle = 0;
+    f.mode = 'focus';
+    f.duration = FOCUS_PRESETS.focus[0] * 60;
+  }
+  f.remaining = f.duration;
+  f.task = '';
+  updateFocusViews();
+  if (panelName === 'focus') renderPanel('focus');
+  toast(isEN() ? 'Phase skipped. No reward was given.' : '已跳过这一阶段，不计算奖励。', 'info', 2800);
+  saveNow();
 }
 
 function focusTickLoop() {
@@ -868,11 +1469,40 @@ function focusTickLoop() {
     }
     updateFocusChip();
     updateFocusPanelLive();
+    if (Date.now() - lastFocusTraySyncAt > 15000) {
+      lastFocusTraySyncAt = Date.now();
+      syncFocusTray();
+    }
   }, 350);
+}
+
+function focusStartMessage(mode, minutes, resuming = false) {
+  const en = isEN();
+  const safeMinutes = Math.max(1, Math.round(Number(minutes) || 1));
+  if (resuming) {
+    return en
+      ? `Resuming. ${safeMinutes} minutes left. I will keep the rest of the time.`
+      : `继续。还剩 ${safeMinutes} 分钟。剩下的时间我替你看着。`;
+  }
+  if (mode === 'longBreak') {
+    return en
+      ? `${safeMinutes} minutes. Let this round close properly.`
+      : `${safeMinutes} 分钟。让这一轮好好合上。`;
+  }
+  if (mode === 'shortBreak') {
+    return en
+      ? `${safeMinutes} minutes. Look away from the screen; the rain will watch the time.`
+      : `${safeMinutes} 分钟。把视线移开，雨会替你看着时间。`;
+  }
+  return en
+    ? `${safeMinutes} minutes. I will watch the rain; you just take the next step.`
+    : `${safeMinutes} 分钟。我替你看着雨，你只管往前走。`;
 }
 
 function startFocusSession({ mode = null, minutes = null } = {}) {
   const f = state.focus;
+  clearTimeout(focusAutoTimer);
+  if (mode) mode = normalizeFocusMode(mode);
   if (mode && mode !== f.mode) {
     f.mode = mode;
     f.duration = (minutes || FOCUS_PRESETS[mode][0]) * 60;
@@ -888,6 +1518,7 @@ function startFocusSession({ mode = null, minutes = null } = {}) {
   if (f.remaining <= 0) f.remaining = f.duration;
   const resuming = f.remaining < f.duration;
   f.running = true;
+  f.mode = normalizeFocusMode(f.mode);
   f.endAt = Date.now() + f.remaining * 1000;
   f.startedAt = f.startedAt || Date.now();
   scene?.cancelAction();
@@ -897,7 +1528,13 @@ function startFocusSession({ mode = null, minutes = null } = {}) {
   setToolsOpen(false);
   closeComposer(false);
   hideBubble(true);
-  say(pickLine(f.mode === 'break' ? 'breakStart' : 'focusStart'), { duration: 8200, hint: '专注期间，我会安静地待在这里' });
+  const activeMinutes = resuming ? Math.ceil(f.remaining / 60) : Math.round(f.duration / 60);
+  say(focusStartMessage(f.mode, activeMinutes, resuming), {
+    duration: 8200,
+    hint: isBreakMode(f.mode)
+      ? (isEN() ? 'A short pause. I will be here.' : '休息期间，我在这里。')
+      : (isEN() ? 'I will stay quiet while the timer runs.' : '专注期间，我会安静地待在这里'),
+  });
   focusTickLoop();
   updateFocusViews();
   if (panelName === 'focus') renderPanel('focus');
@@ -908,6 +1545,7 @@ function startFocusSession({ mode = null, minutes = null } = {}) {
 function pauseFocus(quiet = false) {
   const f = state.focus;
   if (!f.running) return;
+  clearTimeout(focusAutoTimer);
   f.remaining = Math.max(1, Math.ceil((f.endAt - Date.now()) / 1000));
   f.running = false;
   f.endAt = null;
@@ -920,6 +1558,7 @@ function pauseFocus(quiet = false) {
 
 function resetFocus(quiet = false) {
   const f = state.focus;
+  clearTimeout(focusAutoTimer);
   f.running = false;
   f.endAt = null;
   f.remaining = f.duration;
@@ -934,7 +1573,8 @@ function resetFocus(quiet = false) {
 function completeFocus(restored = false) {
   const f = state.focus;
   if (f.running === false && !restored) return;
-  const completedMode = f.mode;
+  clearTimeout(focusAutoTimer);
+  const completedMode = normalizeFocusMode(f.mode);
   const minutes = Math.max(1, Math.round(f.duration / 60));
   const focusTask = String(f.task || '').trim();
   f.running = false;
@@ -942,6 +1582,7 @@ function completeFocus(restored = false) {
   f.endAt = null;
   scene?.setFocus(false);
   audio.chime('celebrate');
+
   if (completedMode === 'focus') {
     state.stats.focusSessions += 1;
     state.stats.focusMinutes += minutes;
@@ -949,15 +1590,27 @@ function completeFocus(restored = false) {
     if (state.stats.focusDay !== today) {
       state.stats.focusDay = today;
       state.stats.focusToday = 0;
+      state.stats.focusTodaySessions = 0;
     }
     state.stats.focusToday += minutes;
-    touchToday().focusMinutes += minutes;
-    touchToday().interactions += 1;
-    recordCompanionEvent('focus_complete', { minutes, task: focusTask.slice(0, 48) });
+    state.stats.focusTodaySessions = (state.stats.focusTodaySessions || 0) + 1;
+    state.stats.focusDays = state.stats.focusDays && typeof state.stats.focusDays === 'object' ? state.stats.focusDays : {};
+    state.stats.focusDays[today] = (Number(state.stats.focusDays[today]) || 0) + minutes;
+    const todayStats = touchToday();
+    todayStats.focusMinutes += minutes;
+    todayStats.focusSessions = (todayStats.focusSessions || 0) + 1;
+    todayStats.interactions += 1;
+    f.cycle = Math.min(FOCUS_CYCLE_LENGTH, (Number(f.cycle) || 0) + 1);
+    const nextMode = f.cycle >= FOCUS_CYCLE_LENGTH ? 'longBreak' : 'shortBreak';
+    const nextMinutes = FOCUS_PRESETS[nextMode][0];
+    recordCompanionEvent('focus_complete', { minutes, task: focusTask.slice(0, 48), cycle: f.cycle });
     addAffection(8);
     addDroplets(2);
     scene?.celebrate();
     if (panelName === 'focus') closePanel(true);
+    const cycleText = isEN()
+      ? `Pomodoro ${f.cycle}/${FOCUS_CYCLE_LENGTH}${nextMode === 'longBreak' ? ' — long break unlocked' : ''}`
+      : `番茄 ${f.cycle}/${FOCUS_CYCLE_LENGTH}${nextMode === 'longBreak' ? ' · 可以长休了' : ''}`;
     const followUp = focusTask
       ? (isEN()
         ? `${minutes} minutes are up. How is “${focusTask.slice(0, 42)}” going?`
@@ -967,37 +1620,58 @@ function completeFocus(restored = false) {
         : '这一段结束了。先喝口水，再想下一步。');
     state.companion.pendingFocus = { minutes, task: focusTask.slice(0, 48), at: Date.now(), asked: true };
     lastFocusFollowUpAt = Date.now();
-    say(followUp, { duration: 10500, hint: `本段 ${minutes} 分钟 · +8 亲密 · +2 时之雨` });
-    toast(`专注完成 · ${minutes} 分钟　+8 亲密　+2 时之雨`, 'success', 5200);
+    say(followUp, { duration: 10500, hint: `${cycleText} · +8 ${isEN() ? 'affection' : '亲密'} · +2 ${isEN() ? 'Time Rain' : '时之雨'}` });
+    toast(isEN()
+      ? `Focus complete · ${minutes} min · ${cycleText} · +8 affection · +2 Time Rain`
+      : `专注完成 · ${minutes} 分钟 · ${cycleText} · +8 亲密 · +2 时之雨`, 'success', 5600);
     bridge.notify({
       title: isEN() ? 'Vertin · Focus complete' : '维尔汀 · 专注完成',
       body: isEN()
-        ? `You focused for ${minutes} minutes. The rain is still falling; take a rest.`
-        : `你完成了 ${minutes} 分钟的专注。雨还在下，休息一下吧。`,
+        ? `${minutes} minutes are up. ${nextMode === 'longBreak' ? 'Four rounds done; a long break is ready.' : 'A short break is ready.'}`
+        : `${minutes} 分钟到了。${nextMode === 'longBreak' ? '四段完成，可以长休了。' : '可以小憩一会儿。'}`,
     });
-    f.mode = 'break';
-    f.duration = 300;
-    f.remaining = 300;
+    f.mode = nextMode;
+    f.duration = nextMinutes * 60;
+    f.remaining = f.duration;
     f.task = '';
   } else {
+    const wasLong = completedMode === 'longBreak';
     addAffection(2);
     scene?.spawnHearts(4);
     say(pickLine('breakDone'), { duration: 7000 });
-    toast('小憩结束。准备好再出发吧。', 'success', 3200);
+    toast(isEN()
+      ? `${wasLong ? 'Long break' : 'Break'} finished. Ready for the next round?`
+      : `${wasLong ? '长休' : '小憩'}结束。准备好再出发吧。`, 'success', 3200);
+    if (wasLong) f.cycle = 0;
     f.mode = 'focus';
-    f.duration = 1500;
-    f.remaining = 1500;
+    f.duration = FOCUS_PRESETS.focus[1] * 60;
+    f.remaining = f.duration;
     f.task = '';
   }
+
   f.startedAt = null;
   focusTickLoop();
   updateFocusViews();
   if (panelName === 'focus') renderPanel('focus');
-  if (!restored) saveNow();
+  if (!restored) {
+    if (f.autoNext) {
+      const autoMode = f.mode;
+      const autoMinutes = Math.round(f.duration / 60);
+      focusAutoTimer = setTimeout(() => {
+        if (!state.focus.running
+          && state.focus.mode === autoMode
+          && state.focus.remaining === state.focus.duration) {
+          startFocusSession({ mode: autoMode, minutes: autoMinutes });
+        }
+      }, 2200);
+    }
+    saveNow();
+  }
 }
 
 function restoreFocus() {
   const f = state.focus;
+  f.mode = normalizeFocusMode(f.mode);
   if (f.running && f.endAt) {
     if (f.endAt <= Date.now()) {
       f.running = true;
@@ -1017,8 +1691,8 @@ function restoreFocus() {
 function setFocusMode(mode) {
   if (state.focus.running) pauseFocus(true);
   const f = state.focus;
-  f.mode = mode;
-  f.duration = (FOCUS_PRESETS[mode][0]) * 60;
+  f.mode = normalizeFocusMode(mode);
+  f.duration = (FOCUS_PRESETS[f.mode] || FOCUS_PRESETS.focus)[0] * 60;
   f.remaining = f.duration;
   f.endAt = null;
   f.task = '';
@@ -1026,6 +1700,14 @@ function setFocusMode(mode) {
   updateFocusViews();
   renderPanel('focus');
   saveSoon();
+}
+
+function resetFocusCycle() {
+  clearTimeout(focusAutoTimer);
+  state.focus.cycle = 0;
+  saveNow();
+  if (panelName === 'focus') renderPanel('focus');
+  toast(isEN() ? 'Pomodoro cycle reset.' : '本轮番茄轮次已清空。', 'info', 2200);
 }
 
 function setFocusPreset(minutes) {
@@ -1101,53 +1783,139 @@ function goBackPanel() {
   audio.tick();
 }
 
+function focusDayKeyAt(offset = 0) {
+  const date = new Date();
+  date.setHours(12, 0, 0, 0);
+  date.setDate(date.getDate() + offset);
+  return toDayKey(date);
+}
+
+function focusWeekSeries() {
+  const days = state.stats.focusDays && typeof state.stats.focusDays === 'object' ? state.stats.focusDays : {};
+  return Array.from({ length: 7 }, (_, index) => {
+    const offset = index - 6;
+    const day = focusDayKeyAt(offset);
+    const label = isEN()
+      ? new Date(`${day}T12:00:00`).toLocaleDateString('en-US', { weekday: 'short' })
+      : ['日', '一', '二', '三', '四', '五', '六'][new Date(`${day}T12:00:00`).getDay()];
+    return { day, label, minutes: Math.max(0, Number(days[day]) || 0), today: offset === 0 };
+  });
+}
+
+function focusLongestStreak() {
+  const days = state.stats.focusDays && typeof state.stats.focusDays === 'object' ? state.stats.focusDays : {};
+  const keys = Object.keys(days).filter((day) => Number(days[day]) > 0).sort();
+  let best = 0;
+  let run = 0;
+  let previous = null;
+  for (const day of keys) {
+    const index = checkinDayIndex(day);
+    if (index === null) continue;
+    run = previous !== null && index - previous === 1 ? run + 1 : 1;
+    best = Math.max(best, run);
+    previous = index;
+  }
+  return best;
+}
+
+function focusWeekHTML() {
+  const week = focusWeekSeries();
+  const total = week.reduce((sum, day) => sum + day.minutes, 0);
+  const max = Math.max(25, ...week.map((day) => day.minutes));
+  return `<div class="focus-week">
+    <div class="focus-week-head">
+      <span>${isEN() ? 'Last 7 days' : '最近 7 天'}</span>
+      <b>${total} ${isEN() ? 'min' : '分钟'}</b>
+      <small>${isEN() ? `Longest streak ${focusLongestStreak()} days` : `最长连续 ${focusLongestStreak()} 天`}</small>
+    </div>
+    <div class="focus-week-bars">
+      ${week.map((day) => `<div class="focus-week-col ${day.today ? 'is-today' : ''}">
+        <span class="focus-week-value">${day.minutes || ''}</span>
+        <span class="focus-week-bar" style="--bar:${Math.max(3, Math.round((day.minutes / max) * 100))}%"></span>
+        <small>${day.label}</small>
+      </div>`).join('')}
+    </div>
+  </div>`;
+}
+
 function renderFocusPanel() {
   const f = state.focus;
-  const presets = FOCUS_PRESETS[f.mode] || FOCUS_PRESETS.focus;
+  const mode = normalizeFocusMode(f.mode);
+  const presets = FOCUS_PRESETS[mode] || FOCUS_PRESETS.focus;
   const circumference = 2 * Math.PI * 62;
   const ratio = Math.max(0, Math.min(1, f.duration ? f.remaining / f.duration : 0));
   const today = state.stats.focusDay === toDayKey() ? state.stats.focusToday : 0;
-  const modeButtons = ['focus', 'break'].map((mode) => `
-    <button class="seg-btn ${f.mode === mode ? 'is-active' : ''}" type="button" data-focus-mode="${mode}">
-      ${mode === 'focus' ? '专注' : '小憩'}
+  const todaySessions = state.stats.focusDay === toDayKey() ? (state.stats.focusTodaySessions || 0) : 0;
+  const cycle = Math.max(0, Math.min(FOCUS_CYCLE_LENGTH, Number(f.cycle) || 0));
+  const cycleDots = Array.from({ length: FOCUS_CYCLE_LENGTH }, (_, index) => `
+    <span class="focus-cycle-dot ${index < cycle ? 'is-full' : ''} ${index === cycle && cycle < FOCUS_CYCLE_LENGTH ? 'is-next' : ''}" aria-hidden="true"></span>`).join('');
+  const modeButtons = ['focus', 'shortBreak', 'longBreak'].map((entry) => `
+    <button class="seg-btn ${mode === entry ? 'is-active' : ''}" type="button" data-focus-mode="${entry}">
+      ${focusModeShort(entry)}
     </button>`).join('');
   const presetButtons = presets.map((minutes) => `
     <button class="preset-btn ${f.duration === minutes * 60 ? 'is-active' : ''}" type="button" data-preset-minutes="${minutes}">
-      ${minutes} 分钟
+      ${minutes} ${isEN() ? 'min' : '分钟'}
     </button>`).join('');
+  const startLabel = f.running
+    ? (isEN() ? 'Pause' : '暂停计时')
+    : (f.remaining < f.duration
+      ? (isEN() ? 'Resume' : '继续计时')
+      : (mode === 'longBreak'
+        ? (isEN() ? 'Start long break' : '开始长休')
+        : (mode === 'shortBreak' ? (isEN() ? 'Start break' : '开始小憩') : (isEN() ? 'Start focus' : '开始专注'))));
   return `
-    ${panelHead('专注记录', '计时与专注', '◷')}
+    ${panelHead(isEN() ? 'Focus & Pomodoro' : '专注与番茄钟', isEN() ? 'Timing & cycles' : '计时与轮次', '◷')}
     <div class="focus-clock">
       <svg viewBox="0 0 146 146" aria-hidden="true">
         <circle class="clock-track" cx="73" cy="73" r="62"></circle>
-        <circle id="focusRing" class="clock-progress ${f.mode === 'break' ? 'break' : ''}" cx="73" cy="73" r="62"
+        <circle id="focusRing" class="clock-progress ${isBreakMode(mode) ? 'break' : ''}" cx="73" cy="73" r="62"
           stroke-dasharray="${circumference.toFixed(2)}"
           stroke-dashoffset="${(circumference * (1 - ratio)).toFixed(2)}"></circle>
       </svg>
       <div class="focus-face">
         <span class="focus-time" id="focusTime">${formatClock(f.remaining)}</span>
-        <span class="focus-mode-label" id="focusModeLabel">${focusModeLabel()}</span>
+        <span class="focus-mode-label" id="focusModeLabel">${focusModeLabel(mode)}</span>
       </div>
     </div>
-    <div class="segmented" role="group" aria-label="计时模式">${modeButtons}</div>
-    <div class="preset-row" role="group" aria-label="时长">${presetButtons}</div>
+    <div class="segmented" role="group" aria-label="${isEN() ? 'Timer mode' : '计时模式'}">${modeButtons}</div>
+    <div class="focus-cycle">
+      <div class="focus-cycle-head">
+        <span>${isEN() ? 'Pomodoro cycle' : '番茄轮次'}</span>
+        <b>${cycle} / ${FOCUS_CYCLE_LENGTH}</b>
+        <small>${cycle >= FOCUS_CYCLE_LENGTH ? (isEN() ? 'Long break ready' : '可以长休') : (isEN() ? `${FOCUS_CYCLE_LENGTH - cycle} to long break` : `再 ${FOCUS_CYCLE_LENGTH - cycle} 段长休`)}</small>
+      </div>
+      <div class="focus-cycle-dots" aria-label="${isEN() ? `${cycle} of 4 focus rounds` : `已完成 ${cycle} / 4 段专注`}">${cycleDots}</div>
+      <button class="focus-cycle-reset" type="button" data-focus-action="reset-cycle">${isEN() ? 'Clear cycle' : '清空轮次'}</button>
+    </div>
+    <div class="preset-row ${mode === 'focus' ? 'is-focus-presets' : ''}" role="group" aria-label="${isEN() ? 'Duration' : '时长'}">${presetButtons}</div>
     <input id="focusTask" class="task-input" type="text" maxlength="42" value="${escapeHTML(f.task || '')}"
-      placeholder="${f.mode === 'break' ? '休息的时候，不必安排任务' : '这一段时间要做什么？（可留空）'}"
-      aria-label="专注任务">
+      placeholder="${isBreakMode(mode) ? (isEN() ? 'No task needed during a break' : '休息的时候，不必安排任务') : (isEN() ? 'What will you do in this session? (optional)' : '这一段时间要做什么？（可留空）')}"
+      aria-label="${isEN() ? 'Focus task' : '专注任务'}">
+    <div class="focus-auto-row">
+      <div class="focus-auto-copy">
+        <strong>${isEN() ? 'Auto-start next phase' : '自动进入下一段'}</strong>
+        <small>${isEN() ? 'When a phase ends, start the next one automatically after a short pause.' : '一段结束后，短暂停顿就自动开始下一段。'}</small>
+      </div>
+      <button class="switch" type="button" data-focus-action="auto-next" aria-pressed="${Boolean(f.autoNext)}" aria-label="${isEN() ? 'Auto-start next phase' : '自动进入下一段'}"><i></i></button>
+    </div>
     <div class="focus-actions">
-      <button class="primary-btn" id="focusStartBtn" type="button" data-focus-action="start">
-        ${f.running ? '暂停计时' : (f.remaining < f.duration ? '继续计时' : (f.mode === 'break' ? '开始小憩' : '开始专注'))}
-      </button>
-      <button class="ghost-btn" type="button" data-focus-action="reset">重置</button>
+      <button class="primary-btn" id="focusStartBtn" type="button" data-focus-action="start">${startLabel}</button>
+      <button class="ghost-btn" type="button" data-focus-action="reset">${isEN() ? 'Reset' : '重置'}</button>
     </div>
-    <p class="focus-hint">${f.mode === 'break'
-      ? '小憩五分钟。把视线从屏幕上移开，雨会替你看着时间。'
-      : '完成一段专注可获得 +8 亲密与 2 枚时之雨。计时期间窗口仍可拖动。'}</p>
+    <p class="focus-hint">${mode === 'focus'
+      ? (isEN()
+        ? 'A focus round gives +8 affection and +2 Time Rain. Four rounds unlock a long break.'
+        : '完成一段专注可获得 +8 亲密与 2 枚时之雨。每完成 4 段进入长休。')
+      : (mode === 'longBreak'
+        ? (isEN() ? 'Long break. Stand up, look away, and let the cycle close.' : '长休一下。站起来，看看远处，让这一轮合上。')
+        : (isEN() ? 'Short break. Look away from the screen; the rain will watch the time.' : '小憩一下。把视线从屏幕上移开，雨会替你看着时间。'))}</p>
     <div class="focus-now">
-      <span>今日专注 <b id="focusToday">${today}</b> 分钟</span>
-      <span>累计 <b id="focusTotal">${state.stats.focusMinutes}</b> 分钟</span>
+      <span>${isEN() ? 'Today' : '今日'} <b id="focusTodaySessions">${todaySessions}</b> ${isEN() ? 'rounds' : '段'} · <b id="focusToday">${today}</b> ${isEN() ? 'min' : '分钟'}</span>
+      <span>${isEN() ? 'Total' : '累计'} <b id="focusTotal">${state.stats.focusMinutes}</b> ${isEN() ? 'min' : '分钟'}</span>
     </div>
-    <div class="panel-footer">记录只留在这台电脑上。</div>`;
+    ${focusWeekHTML()}
+    <div class="panel-footer">${isEN() ? 'Focus records stay on this computer.' : '记录只留在这台电脑上。'}</div>`;
 }
 
 function wardrobeCopy(item, key) {
@@ -1257,6 +2025,32 @@ function wardrobeThumb(item) {
   </span>`;
 }
 
+function wardrobeLookSnapshot(eq) {
+  const source = { ...DEFAULT_WARDROBE, ...(eq || {}) };
+  return {
+    outfit: source.outfit || null,
+    hat: source.hat || 'hat',
+    coat: source.coat || null,
+    neck: source.neck || null,
+    face: source.face || null,
+    held: source.held || null,
+    case: source.case || null,
+  };
+}
+
+function normalizeWardrobeLook(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const eq = { ...DEFAULT_WARDROBE };
+  let hasSomething = false;
+  for (const key of ['hat', 'coat', 'neck', 'face', 'held', 'case', 'outfit']) {
+    if (Object.prototype.hasOwnProperty.call(raw, key)) hasSomething = true;
+    const id = raw[key];
+    if (!id || !wardrobeItemById(id)) continue;
+    eq[key] = id;
+  }
+  return hasSomething ? eq : null;
+}
+
 function wardrobeLookName(eq) {
   const ids = [
     eq.outfit,
@@ -1314,6 +2108,24 @@ function renderWardrobePanel() {
           <button class="mini-btn" type="button" data-wardrobe-apply ${dirty ? '' : 'disabled'}>${isEN() ? 'Wear this' : '穿上'}</button>
           <button class="ghost-btn" type="button" data-wardrobe-reset ${dirty ? '' : 'disabled'}>${isEN() ? 'Undo try-on' : '恢复当前'}</button>
         </div>
+      </div>
+    </div>
+    <div class="wardrobe-presets">
+      <div class="wardrobe-presets-head">
+        <span>${isEN() ? 'Saved looks' : '造型预设'}</span>
+        <small>${isEN() ? 'Three slots · tap an empty slot to save' : '三个位置 · 点空位保存当前造型'}</small>
+      </div>
+      <div class="wardrobe-preset-row">
+        ${[0, 1, 2].map((index) => {
+          const preset = state.wardrobePresets?.[index];
+          return `<div class="wardrobe-preset ${preset ? 'is-set' : ''}">
+            <button class="wardrobe-preset-main" type="button" data-wardrobe-preset="${index}">
+              <strong>${isEN() ? `Look ${index + 1}` : `造型 ${index + 1}`}</strong>
+              <small>${preset ? escapeHTML(wardrobeLookName(preset)) : (isEN() ? 'Save current' : '保存当前造型')}</small>
+            </button>
+            ${preset ? `<button class="wardrobe-preset-clear" type="button" data-wardrobe-preset-clear="${index}" aria-label="${isEN() ? 'Clear saved look' : '清除造型'}">×</button>` : ''}
+          </div>`;
+        }).join('')}
       </div>
     </div>
     <div class="wardrobe-tabs">
@@ -1423,6 +2235,9 @@ function renderProfilePanel() {
       <button class="mini-btn" type="button" data-panel-action="quick-focus">${isEN() ? 'Focus' : '专注'}</button>
       <button class="mini-btn" type="button" data-panel-action="quick-game">${isEN() ? 'Rain' : '拾雨'}</button>
       <button class="ghost-btn" type="button" data-panel-action="memories">${isEN() ? 'Old Records' : '旧日记录'}</button>
+      <button class="ghost-btn" type="button" data-panel-action="photos">${isEN() ? 'Photo album' : '照片册'}</button>
+      <button class="ghost-btn" type="button" data-panel-action="guests">${isEN() ? 'Guests' : '来客'}</button>
+      <button class="ghost-btn ${checkinStatus().claimed ? '' : 'has-checkin'}" type="button" data-panel-action="checkin">${isEN() ? 'Check in' : '签到'}</button>
     </div>
     <div class="section-label">${isEN() ? 'Find a companion' : '查找同行者'}</div>
     <div class="profile-search-row">
@@ -1812,6 +2627,211 @@ function renderDossierPanel() {
     </div>`;
 }
 
+function renderConversationSummaries() {
+  const en = isEN();
+  const summaries = Array.isArray(state.companion.summaries) ? state.companion.summaries : [];
+  return `<div class="section-label">${en ? 'Conversation summaries' : '对话摘要'}</div>
+    <p class="setting-note">${en
+      ? 'Every 12 replies, a short local summary is kept. It is not sent to any server unless you continue the conversation.'
+      : '每 12 轮回复保存一条本地摘要。除非你继续聊天，否则不会发给任何服务器。'}</p>
+    ${summaries.length ? `<div class="conversation-summaries">
+      ${summaries.map((summary) => `<div class="conversation-summary">
+        <div><span>${escapeHTML(summary.text)}</span><small>${new Date(summary.at || Date.now()).toLocaleDateString(en ? 'en-US' : 'zh-CN')} · ${summary.turns || 12} ${en ? 'turns' : '轮'}</small></div>
+        <button class="memory-delete" type="button" data-summary-delete="${summary.id}" aria-label="${en ? 'Delete summary' : '删除摘要'}">×</button>
+      </div>`).join('')}
+    </div>` : `<p class="conversation-summary-empty">${en ? 'No summaries yet.' : '还没有摘要。'}</p>`}`;
+}
+
+function maybeSummarizeChat() {
+  state.companion.chatTurns = (state.companion.chatTurns || 0) + 1;
+  if (state.companion.chatTurns < 12) {
+    saveSoon();
+    return;
+  }
+  const userLines = chatHistory
+    .filter((message) => message.role === 'user')
+    .map((message) => String(message.content || '').replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .slice(-6);
+  if (userLines.length) {
+    const en = isEN();
+    const text = `${en ? 'Recently talked about: ' : '最近聊到：'}${userLines.join(en ? '; ' : '；')}`.slice(0, 420);
+    state.companion.summaries = [
+      {
+        id: `summary-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+        at: Date.now(),
+        turns: 12,
+        text,
+      },
+      ...(Array.isArray(state.companion.summaries) ? state.companion.summaries : []),
+    ].slice(0, 8);
+  }
+  state.companion.chatTurns = 0;
+  saveSoon();
+}
+
+function deleteConversationSummary(id) {
+  state.companion.summaries = (state.companion.summaries || []).filter((summary) => summary.id !== id);
+  saveNow();
+  refreshSettingsKeepingScroll();
+  toast(isEN() ? 'Summary deleted.' : '摘要已删除。', 'info', 2200);
+}
+
+let dialogueEvalResults = [];
+
+function runDialogueEval() {
+  dialogueEvalResults = DIALOGUE_EVAL_CASES.map((testCase) => {
+    let reply = '';
+    try {
+      reply = String(replyTo(testCase.input) || '');
+    } catch {
+      reply = '';
+    }
+    return {
+      ...testCase,
+      reply,
+      pass: Boolean(reply) && testCase.expect.test(reply),
+    };
+  });
+  return dialogueEvalResults;
+}
+
+function renderDialogueEvalPanel() {
+  if (!dialogueEvalResults.length) runDialogueEval();
+  const passed = dialogueEvalResults.filter((result) => result.pass).length;
+  return `${panelHead(isEN() ? 'Dialogue checks' : '对话自检', isEN() ? '12 fixed offline prompts' : '12 个固定离线场景', '◇')}
+    <p class="setting-note">${isEN()
+      ? 'These checks only exercise the local reply rules. No API request is made.'
+      : '这里只测试本地回复规则，不会请求 DeepSeek，也不会上传内容。'}</p>
+    <div class="dialogue-eval-score ${passed === dialogueEvalResults.length ? 'is-pass' : ''}">
+      <strong>${passed} / ${dialogueEvalResults.length}</strong>
+      <span>${isEN() ? 'passed' : '通过'}</span>
+    </div>
+    <div class="dialogue-eval-list">
+      ${dialogueEvalResults.map((result) => `<div class="dialogue-eval-item ${result.pass ? 'is-pass' : 'is-fail'}">
+        <div><span>${escapeHTML(result.input)}</span><small>${escapeHTML(result.reply || '—')}</small></div>
+        <b>${result.pass ? 'PASS' : 'FAIL'}</b>
+      </div>`).join('')}
+    </div>
+    <div class="setting-actions">
+      <button class="primary-btn" type="button" data-panel-action="run-dialogue-eval">${isEN() ? 'Run again' : '再跑一次'}</button>
+      <button class="ghost-btn" type="button" data-panel-back>${isEN() ? 'Back' : '返回'}</button>
+    </div>`;
+}
+
+function memoryCategoryLabel(category) {
+  const entry = MEMORY_CATEGORIES.find((item) => item.id === category) || MEMORY_CATEGORIES[3];
+  return entry[isEN() ? 'en' : 'zh'];
+}
+
+function memoryCategoryOptions(selected = 'other') {
+  return MEMORY_CATEGORIES.map((category) => `<option value="${category.id}" ${category.id === selected ? 'selected' : ''}>${escapeHTML(category[isEN() ? 'en' : 'zh'])}</option>`).join('');
+}
+
+function refreshSettingsKeepingScroll() {
+  const scroll = els.panel?.scrollTop || 0;
+  renderPanel('settings');
+  requestAnimationFrame(() => {
+    if (els.panel) els.panel.scrollTop = Math.min(scroll, els.panel.scrollHeight);
+  });
+}
+
+function togglePinnedMemory(id) {
+  const memory = state.memories.find((entry) => entry.id === id);
+  if (!memory) return;
+  if (!memory.pinned && state.memories.filter((entry) => entry.pinned).length >= MAX_PINNED_MEMORIES) {
+    toast(isEN() ? 'You can pin up to 3 memories.' : '最多置顶 3 条记忆。', 'info', 2400);
+    return;
+  }
+  memory.pinned = !memory.pinned;
+  saveNow();
+  refreshSettingsKeepingScroll();
+  toast(isEN()
+    ? (memory.pinned ? 'Pinned for longer context.' : 'Unpinned.')
+    : (memory.pinned ? '已置顶，会优先进入长期上下文。' : '已取消置顶。'), 'success', 2200);
+}
+
+function renderMemorySettings() {
+  const en = isEN();
+  const memories = [...(Array.isArray(state.memories) ? state.memories : [])]
+    .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)));
+  const pinnedCount = memories.filter((memory) => memory.pinned).length;
+  return `
+    <div class="memory-settings">
+      ${memories.length ? `<div class="memory-list">
+        ${memories.map((memory) => {
+          const editing = memoryEditingId === memory.id;
+          return `<div class="memory-item ${memory.pinned ? 'is-pinned' : ''}">
+            <div class="memory-item-copy">
+              ${editing
+                ? `<input id="memoryEditInput" class="memory-edit-input" type="text" maxlength="120" value="${escapeHTML(memory.text)}" autocomplete="off" spellcheck="false">
+                   <select id="memoryEditCategory" class="memory-category-select" aria-label="${en ? 'Memory category' : '记忆分类'}">${memoryCategoryOptions(memory.category)}</select>`
+                : `<span>${escapeHTML(memory.text)}</span>`}
+              <small class="memory-meta">${memoryCategoryLabel(memory.category)}${memory.pinned ? (en ? ' · pinned' : ' · 已置顶') : ''}</small>
+            </div>
+            <div class="memory-item-actions">
+              ${editing
+                ? `<button class="mini-btn" type="button" data-memory-save="${memory.id}">${en ? 'Save' : '保存'}</button>
+                   <button class="ghost-btn" type="button" data-memory-cancel="${memory.id}">${en ? 'Cancel' : '取消'}</button>`
+                : `<button class="memory-pin ${memory.pinned ? 'is-on' : ''}" type="button" data-memory-pin="${memory.id}" aria-pressed="${Boolean(memory.pinned)}">${memory.pinned ? (en ? 'Unpin' : '取消置顶') : (en ? 'Pin' : '置顶')}</button>
+                   <button class="ghost-btn" type="button" data-memory-edit="${memory.id}">${en ? 'Edit' : '改'}</button>
+                   <button class="memory-delete" type="button" data-memory-delete="${memory.id}" aria-label="${en ? 'Delete memory' : '删除记忆'}">×</button>`}
+            </div>
+          </div>`;
+        }).join('')}
+      </div>` : `<div class="empty-state memory-empty"><strong>${en ? 'Nothing kept yet.' : '还没有记住的事。'}</strong><p>${en ? 'When a reply offers a memory, you can keep, edit, or ignore it.' : '回复里出现记忆提示时，可以选择记住、修改或忽略。'}</p></div>`}
+      <div class="setting-actions">
+        <span class="memory-count">${memories.length} / 20 · ${en ? `${pinnedCount} / 3 pinned` : `置顶 ${pinnedCount} / 3`}</span>
+        ${memories.length ? `<button class="ghost-btn" type="button" data-panel-action="clear-memories">${en ? 'Clear all' : '清空记忆'}</button>` : ''}
+      </div>
+      <p class="setting-note">${en
+        ? 'Only memories you confirm are kept locally. Relevant ones may be sent as chat context; pinned memories are preferred for longer context.'
+        : '只保存你确认过的记忆。聊天时只注入与当前话题相关的内容；置顶记忆会优先进入长期上下文。'}</p>
+      ${renderConversationSummaries()}
+    </div>`;
+}
+
+function saveEditedMemory(id) {
+  const input = els.panel?.querySelector('#memoryEditInput');
+  const text = String(input?.value || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+  if (text.length < 4) {
+    toast(isEN() ? 'That is a little too short.' : '这句话太短了，再写具体一点。', 'info', 2200);
+    return;
+  }
+  if (state.memories.some((memory) => memory.id !== id && memory.text.toLowerCase() === text.toLowerCase())) {
+    toast(isEN() ? 'That memory already exists.' : '这条记忆已经存在了。', 'info', 2200);
+    return;
+  }
+  const categorySelect = els.panel?.querySelector('#memoryEditCategory');
+  const category = MEMORY_CATEGORY_IDS.has(categorySelect?.value) ? categorySelect.value : 'other';
+  state.memories = state.memories.map((memory) => (memory.id === id ? {
+    ...memory,
+    text,
+    category,
+    at: Date.now(),
+  } : memory));
+  memoryEditingId = null;
+  saveNow();
+  refreshSettingsKeepingScroll();
+  toast(isEN() ? 'Memory updated.' : '记忆已更新。', 'success', 2400);
+}
+
+function deleteMemory(id) {
+  state.memories = state.memories.filter((memory) => memory.id !== id);
+  if (memoryEditingId === id) memoryEditingId = null;
+  saveNow();
+  refreshSettingsKeepingScroll();
+  toast(isEN() ? 'Memory deleted.' : '记忆已删除。', 'info', 2200);
+}
+
+function clearMemories() {
+  state.memories = [];
+  memoryEditingId = null;
+  saveNow();
+  renderPanel('settings');
+  toast(isEN() ? 'All remembered things cleared.' : '已清空全部记忆。', 'info', 2600);
+}
+
 function renderSettingsPanel() {
   const s = state.settings;
   const en = isEN();
@@ -1861,6 +2881,11 @@ function renderSettingsPanel() {
       <div class="setting-actions">
         <button class="ghost-btn" type="button" data-panel-action="clear-companion">清空陪伴记录</button>
       </div>
+    </div>
+    <div class="section-label">${en ? 'Remembered things' : '记住的事'}</div>
+    ${renderMemorySettings()}
+    <div class="setting-actions">
+      <button class="ghost-btn" type="button" data-panel-action="dialogue-eval">${en ? 'Dialogue self-check · 12 cases' : '对话自检 · 12 个场景'}</button>
     </div>
     <div class="section-label">${en ? 'DeepSeek connection' : 'DeepSeek 连接'}</div>
     <div class="llm-card">
@@ -1922,6 +2947,7 @@ function renderSettingsPanel() {
       ${row('autoStart', '开机自动启动', '登录 Windows 后自动来到桌面。', s.autoStart)}
     </div>
     <div class="setting-actions">
+      <button class="ghost-btn" type="button" data-onboarding-replay>${en ? 'Replay guide' : '重看桌面引导'}</button>
       <button class="ghost-btn" type="button" data-panel-action="reset-position">回到右下角</button>
       <button class="ghost-btn" type="button" data-panel-action="hide">藏进雨里</button>
       <button class="danger-btn" type="button" data-panel-action="quit">退出桌宠</button>
@@ -1953,13 +2979,24 @@ function renderPanel(name) {
   else if (name === 'memories') els.panel.innerHTML = renderMemoriesPanel();
   else if (name === 'archive') els.panel.innerHTML = renderArchivePanel();
   else if (name === 'dossier') els.panel.innerHTML = renderDossierPanel();
+  else if (name === 'photos') els.panel.innerHTML = renderPhotosPanel();
+  else if (name === 'guests') els.panel.innerHTML = renderGuestsPanel();
+  else if (name === 'musicbox') {
+    prepareMusicTrack();
+    els.panel.innerHTML = renderMusicBoxPanel();
+    setTimeout(updateMusicProgress, 60);
+  }
+  else if (name === 'checkin') els.panel.innerHTML = renderCheckinPanel();
   else if (name === 'settings') els.panel.innerHTML = renderSettingsPanel();
+  else if (name === 'dialogue-eval') els.panel.innerHTML = renderDialogueEvalPanel();
   hydrateIcons(els.panel);
   if (name === 'focus') updateFocusPanelLive();
+  updateCheckinBadge();
 }
 
 function openPanel(name, { about = false, fromHistory = false } = {}) {
   if (game.active) finishGame({ quiet: true });
+  hideSummonStage();
   if (panelName && panelName !== name && !fromHistory) {
     panelHistory.push(rememberPanelState());
   }
@@ -1999,6 +3036,7 @@ function closePanel(quiet = false) {
   panelName = null;
   panelHistory = [];
   wardrobeTryOn = null;
+  memoryEditingId = null;
   document.body.classList.remove('has-panel');
   els.panelLayer.hidden = true;
   els.panel.innerHTML = '';
@@ -2006,13 +3044,604 @@ function closePanel(quiet = false) {
   syncHitRegions();
   if (!quiet) audio.tick();
   setTimeout(() => recalcMousePassthrough(), 30);
+  setTimeout(flushCompanionMoment, 450);
+}
+
+function checkinDayIndex(day) {
+  const parts = String(day || '').split('-').map(Number);
+  if (parts.length !== 3 || parts.some((part) => !Number.isFinite(part))) return null;
+  return Math.floor(Date.UTC(parts[0], parts[1] - 1, parts[2]) / DAY_MS);
+}
+
+function checkinRewardFor(streak) {
+  const safeStreak = Math.max(1, Math.floor(Number(streak) || 1));
+  const cycleDay = ((safeStreak - 1) % 7) + 1;
+  return {
+    xp: 15 + Math.min(15, (cycleDay - 1) * 3),
+    droplets: 3 + Math.min(3, Math.floor((cycleDay - 1) / 2)),
+    streak: safeStreak,
+    cycleDay,
+  };
+}
+
+function checkinStatus() {
+  const today = toDayKey();
+  const last = state.checkin.lastClaimDay || '';
+  const claimed = last === today;
+  const lastIndex = checkinDayIndex(last);
+  const todayIndex = checkinDayIndex(today);
+  const continued = Boolean(last) && lastIndex !== null && todayIndex !== null && todayIndex - lastIndex === 1;
+  const nextStreak = continued ? (state.checkin.streak || 0) + 1 : 1;
+  const activeStreak = claimed ? Math.max(1, state.checkin.streak || 1) : (continued ? (state.checkin.streak || 0) : 0);
+  const displayStreak = claimed ? Math.max(1, state.checkin.streak || 1) : nextStreak;
+  return {
+    today,
+    claimed,
+    streak: claimed ? state.checkin.streak || 1 : nextStreak,
+    activeStreak,
+    nextStreak,
+    displayStreak,
+    reward: claimed ? (state.checkin.lastReward || checkinRewardFor(displayStreak)) : checkinRewardFor(nextStreak),
+  };
+}
+
+function updateCheckinBadge() {
+  const status = checkinStatus();
+  const claimable = !status.claimed;
+  document.querySelectorAll('.checkin-dot').forEach((dot) => {
+    dot.hidden = !claimable;
+  });
+  els.menuToggle?.classList.toggle('has-checkin', claimable);
+  const profileButton = els.panel?.querySelector('[data-panel-action="checkin"]');
+  if (profileButton) profileButton.classList.toggle('has-checkin', claimable);
+}
+
+function claimDailyCheckin() {
+  const status = checkinStatus();
+  if (status.claimed) {
+    toast(isEN() ? 'Already checked in today.' : '今天已经签到过了。', 'info', 2200);
+    return;
+  }
+  const reward = checkinRewardFor(status.nextStreak);
+  const beforeLevel = levelInfo(state.stats.affection).level;
+  const previousMilestones = Array.isArray(state.checkin.milestones) ? state.checkin.milestones : [];
+  const newlyReached = [7, 14, 28].filter((target) => (
+    reward.streak >= target
+    && !previousMilestones.some((entry) => Number(entry.streak) === target)
+  ));
+  const milestones = [
+    ...previousMilestones,
+    ...newlyReached.map((target) => ({ streak: target, day: status.today, at: Date.now() })),
+  ].sort((a, b) => Number(a.streak) - Number(b.streak));
+  state.checkin = {
+    lastClaimDay: status.today,
+    streak: reward.streak,
+    total: (state.checkin.total || 0) + 1,
+    lastReward: reward,
+    history: [
+      { day: status.today, at: Date.now(), ...reward },
+      ...(Array.isArray(state.checkin.history) ? state.checkin.history : []),
+    ].slice(0, 30),
+    milestones,
+  };
+  addAffection(reward.xp);
+  state.stats.droplets = (state.stats.droplets || 0) + reward.droplets;
+  checkUnlocks(true);
+  recordCompanionEvent('checkin', { streak: reward.streak });
+  queueCompanionMoment('checkin', { streak: reward.streak });
+  scene?.spawnHearts(7);
+  audio.chime('celebrate');
+  const afterLevel = levelInfo(state.stats.affection).level;
+  toast(isEN()
+    ? `Check-in day ${reward.streak}: +${reward.xp} affection, +${reward.droplets} Time Rain.${afterLevel > beforeLevel ? ' Level up.' : ''}`
+    : `签到第 ${reward.streak} 天：亲密度 +${reward.xp}，时之雨 +${reward.droplets}。${afterLevel > beforeLevel ? '等级提升了。' : ''}`, 'gold', 4200);
+  saveNow();
+  updateCheckinBadge();
+  if (newlyReached.length) {
+    toast(isEN()
+      ? `Milestone card earned · day ${newlyReached[newlyReached.length - 1]}`
+      : `获得纪念卡 · 连续第 ${newlyReached[newlyReached.length - 1]} 天`, 'gold', 3600);
+  }
+  if (panelName === 'checkin') renderPanel('checkin');
+}
+
+function checkinHistorySeries() {
+  const done = new Set((Array.isArray(state.checkin.history) ? state.checkin.history : [])
+    .map((entry) => entry?.day)
+    .filter(Boolean));
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = new Date();
+    date.setHours(12, 0, 0, 0);
+    date.setDate(date.getDate() - (6 - index));
+    const day = toDayKey(date);
+    const label = isEN()
+      ? date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })
+      : `${date.getMonth() + 1}/${date.getDate()}`;
+    return { day, label, done: done.has(day), today: index === 6 };
+  });
+}
+
+function renderCheckinMilestones() {
+  const milestones = Array.isArray(state.checkin.milestones) ? state.checkin.milestones : [];
+  return `<div class="checkin-milestones">
+    ${[7, 14, 28].map((target) => {
+      const earned = milestones.find((entry) => Number(entry.streak) === target);
+      return `<div class="checkin-milestone ${earned ? 'is-earned' : ''}">
+        <span class="checkin-milestone-no">${String(target).padStart(2, '0')}</span>
+        <strong>${earned ? (isEN() ? 'Kept' : '已收下') : (isEN() ? 'Not yet' : '待抵达')}</strong>
+        <small>${earned
+          ? escapeHTML(earned.day || '')
+          : (isEN() ? `${target}-day streak` : `连续 ${target} 天`)}</small>
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
+function renderCheckinPanel() {
+  const status = checkinStatus();
+  const streak = status.activeStreak;
+  const cycle = ((Math.max(1, status.displayStreak) - 1) % 7) + 1;
+  const reward = status.reward;
+  return `
+    ${panelHead(isEN() ? 'Daily check-in' : '每日签到', isEN() ? 'A page for today' : '今天的签页', '◇')}
+    <div class="checkin-top">
+      <div><span>${isEN() ? 'Streak' : '连续'}</span><strong>${streak}<small>${isEN() ? ' days' : ' 天'}</small></strong></div>
+      <div><span>${isEN() ? 'Total' : '累计'}</span><strong>${state.checkin.total || 0}<small>${isEN() ? ' check-ins' : ' 次'}</small></strong></div>
+      <div><span>${isEN() ? 'Today' : '今天'}</span><strong>${status.claimed ? (isEN() ? 'Signed' : '已签') : (isEN() ? 'Open' : '可签')}</strong></div>
+    </div>
+    <div class="checkin-cycle-note">${isEN()
+      ? `7-day cycle · this cycle ${cycle} / 7 · total ${streak} days`
+      : `七天一轮 · 本周目 ${cycle} / 7 · 累计连续 ${streak} 天`}</div>
+    <div class="checkin-history">
+      ${checkinHistorySeries().map((day) => `<div class="checkin-history-day ${day.done ? 'is-done' : ''} ${day.today ? 'is-today' : ''}">
+        <span>${day.label}</span>
+        <i></i>
+        <small>${day.done ? (isEN() ? 'signed' : '已签') : (isEN() ? '—' : '—')}</small>
+      </div>`).join('')}
+    </div>
+    <div class="checkin-week">
+      ${Array.from({ length: 7 }, (_, index) => {
+        const day = index + 1;
+        const done = day < cycle || (status.claimed && day === cycle);
+        const current = day === cycle && !status.claimed;
+        return `<div class="checkin-day ${done ? 'is-done' : ''} ${current ? 'is-current' : ''}">
+          <span>${isEN() ? `Day ${day}` : `第 ${day} 天`}</span>
+          <strong>+${checkinRewardFor(day).xp}</strong>
+          <small>${isEN() ? 'affection' : '亲密度'}</small>
+        </div>`;
+      }).join('')}
+    </div>
+    <div class="checkin-reward">
+      <div>
+        <span class="eyebrow">${status.claimed ? (isEN() ? 'TODAY KEPT' : '今天已收下') : (isEN() ? 'TODAY’S PAGE' : '今天的签页')}</span>
+        <strong>${isEN() ? `+${reward.xp} affection · +${reward.droplets} Time Rain` : `亲密度 +${reward.xp} · 时之雨 +${reward.droplets}`}</strong>
+        <p>${isEN() ? 'Rewards loop every 7 days. Missing a day starts a new continuous streak.' : '奖励每 7 天循环一次；断签会从新的连续天数开始。'}</p>
+      </div>
+      <button class="primary-btn" type="button" data-panel-action="checkin-claim" ${status.claimed ? 'disabled' : ''}>
+        ${status.claimed ? (isEN() ? 'Already signed' : '今天已签到') : (isEN() ? 'Sign today' : '签到')}
+      </button>
+    </div>
+    <p class="setting-note">${isEN()
+      ? 'Rewards are added to your existing affection (level experience) and Time Rain. One claim per local calendar day; the reward table repeats every 7 days while the continuous-day count keeps growing.'
+      : '奖励会直接加到现有亲密度（等级经验）与时之雨。每个本地自然日只能领取一次；奖励表每 7 天从头循环，连续天数继续累计。'}</p>
+    <div class="section-label">${isEN() ? 'Milestone cards' : '纪念卡'}</div>
+    ${renderCheckinMilestones()}
+    <div class="panel-footer">${isEN() ? 'A small page for each day.' : '每天一页，慢慢变厚。'}</div>`;
+}
+
+const SUMMON_LEVEL = 5;
+
+function summonUnlocked() {
+  return levelInfo(state.stats.affection).level >= SUMMON_LEVEL;
+}
+
+function musicBoxUnlocked() {
+  return levelInfo(state.stats.affection).level >= MUSICBOX_LEVEL;
+}
+
+function musicTrack() {
+  return MUSIC_TRACKS.find((track) => track.id === state.musicBox.track) || MUSIC_TRACKS[0];
+}
+
+function musicTrackAt(offset) {
+  const index = MUSIC_TRACKS.findIndex((track) => track.id === state.musicBox.track);
+  const next = (index + offset + MUSIC_TRACKS.length) % MUSIC_TRACKS.length;
+  return MUSIC_TRACKS[next];
+}
+
+function formatMusicTime(value) {
+  const seconds = Math.max(0, Math.floor(Number(value) || 0));
+  return `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
+function musicTrackSrc(track = musicTrack()) {
+  return new URL(track.file, document.baseURI).href;
+}
+
+function prepareMusicTrack(track = musicTrack()) {
+  if (musicAudio.dataset.track === track.id) return;
+  musicAudio.src = musicTrackSrc(track);
+  musicAudio.dataset.track = track.id;
+  musicAudio.load();
+}
+
+function updateMusicProgress() {
+  if (panelName !== 'musicbox') return;
+  const current = Number.isFinite(musicAudio.currentTime) ? musicAudio.currentTime : 0;
+  const duration = Number.isFinite(musicAudio.duration) ? musicAudio.duration : 0;
+  const currentEl = document.querySelector('#musicCurrent');
+  const durationEl = document.querySelector('#musicDuration');
+  const progressEl = document.querySelector('#musicProgress');
+  if (currentEl) currentEl.textContent = formatMusicTime(current);
+  if (durationEl) durationEl.textContent = formatMusicTime(duration);
+  if (progressEl && duration > 0) {
+    progressEl.value = String(Math.round((current / duration) * 1000));
+  }
+  const playButton = document.querySelector('[data-music-action="toggle"]');
+  if (playButton) {
+    playButton.innerHTML = `<span class="icon" data-icon="${musicPlaying ? 'pause' : 'play'}"></span>`;
+    hydrateIcons(playButton);
+  }
+}
+
+function updateMusicSleepLabel() {
+  const el = document.querySelector('#musicSleepLabel');
+  if (!el) return;
+  if (!state.musicBox.sleepMinutes || !musicSleepEnds) {
+    el.textContent = isEN() ? 'Sleep timer off' : '睡眠定时关闭';
+    return;
+  }
+  const left = Math.max(0, Math.ceil((musicSleepEnds - Date.now()) / 1000));
+  el.textContent = isEN() ? `Stops in ${formatMusicTime(left)}` : `${formatMusicTime(left)} 后停止`;
+}
+
+function clearMusicSleep() {
+  if (musicSleepTimer) clearInterval(musicSleepTimer);
+  musicSleepTimer = null;
+  musicSleepEnds = 0;
+  state.musicBox.sleepMinutes = 0;
+  saveSoon();
+}
+
+function setMusicSleep(minutes) {
+  const value = Math.max(0, Number(minutes) || 0);
+  if (musicSleepTimer) clearInterval(musicSleepTimer);
+  musicSleepTimer = null;
+  musicSleepEnds = 0;
+  state.musicBox.sleepMinutes = value;
+  saveSoon();
+  if (value > 0) {
+    musicSleepEnds = Date.now() + value * 60000;
+    musicSleepTimer = setInterval(() => {
+      if (Date.now() < musicSleepEnds) {
+        updateMusicSleepLabel();
+        return;
+      }
+      pauseMusic();
+      clearMusicSleep();
+      toast(isEN() ? 'The music box has wound down.' : '音乐盒的发条走到头了。', 'info', 2800);
+      if (panelName === 'musicbox') renderPanel('musicbox');
+    }, 1000);
+  }
+  if (panelName === 'musicbox') renderPanel('musicbox');
+}
+
+function pauseMusic() {
+  musicAudio.pause();
+  musicPlaying = false;
+  updateMusicProgress();
+}
+
+function playMusic() {
+  if (!musicBoxUnlocked()) {
+    toast(isEN() ? `The music box unlocks at Lv.${MUSICBOX_LEVEL}.` : `音乐盒会在 Lv.${MUSICBOX_LEVEL} 解锁。`, 'info', 2600);
+    return;
+  }
+  const track = musicTrack();
+  prepareMusicTrack(track);
+  musicAudio.volume = state.musicBox.volume;
+  musicAudio.loop = state.musicBox.loop;
+  const attempt = musicAudio.play();
+  if (attempt && typeof attempt.catch === 'function') {
+    attempt.catch(() => {
+      musicPlaying = false;
+      toast(isEN() ? 'The paper roll is stuck. Check the audio file.' : '纸带卡住了。请检查音频文件。', 'info', 3200);
+      updateMusicProgress();
+    });
+  }
+}
+
+function toggleMusic() {
+  if (musicPlaying) pauseMusic();
+  else playMusic();
+}
+
+function setMusicTrack(track, { autoplay = musicPlaying } = {}) {
+  if (!track) return;
+  state.musicBox.track = track.id;
+  saveSoon();
+  const wasPlaying = autoplay;
+  musicAudio.pause();
+  musicAudio.dataset.track = '';
+  prepareMusicTrack(track);
+  if (wasPlaying) playMusic();
+  if (panelName === 'musicbox') {
+    renderPanel('musicbox');
+    setTimeout(updateMusicProgress, 50);
+  }
+}
+
+function syncMusicBoxVisibility() {
+  if (!els.musicBox) return;
+  const unlocked = musicBoxUnlocked();
+  els.musicBox.hidden = !unlocked || !scene;
+  els.musicBox.setAttribute('aria-label', isEN() ? 'Open the music box' : '打开音乐盒');
+  els.musicBox.dataset.tip = isEN() ? 'Music box' : '音乐盒';
+  if (!unlocked) {
+    if (musicPlaying) pauseMusic();
+    return;
+  }
+  if (!scene) return;
+  positionPetUi();
+  syncHitRegions();
+  if (!state.musicBox.announced) {
+    state.musicBox.announced = true;
+    saveSoon();
+    toast(isEN()
+      ? `Lv.${MUSICBOX_LEVEL} · The music box is now on the desk.`
+      : `Lv.${MUSICBOX_LEVEL} · 音乐盒来到了桌边。`, 'gold', 5200);
+  }
+}
+
+function renderMusicBoxPanel() {
+  const en = isEN();
+  const track = musicTrack();
+  const unlocked = musicBoxUnlocked();
+  if (!unlocked) {
+    return `${panelHead(en ? 'Music box' : '音乐盒', en ? 'A small winding box' : '箱边的小发条盒', '♪')}
+      <div class="empty-state guest-locked">
+        <strong>${en ? `Unlocks at Lv.${MUSICBOX_LEVEL}` : `Lv.${MUSICBOX_LEVEL} 解锁`}</strong>
+        <p>${en ? 'The music box is waiting inside the suitcase.' : '音乐盒还在箱子里等发条。'}</p>
+      </div>`;
+  }
+  return `${panelHead(en ? 'Music box' : '音乐盒', en ? 'Wind it up, softly' : '给旧发条上一点力', '♪')}
+    <div class="music-panel">
+      <div class="music-cover-wrap">
+        <img class="music-cover" src="../assets/music-box/cover.png" alt="${en ? 'Music box cover' : '音乐盒封面'}">
+        <span class="music-cover-tag">SIDE A · 1999</span>
+      </div>
+      <div class="music-now">
+        <span class="note-label">${en ? 'NOW WINDING' : '正在转动'}</span>
+        <strong>${escapeHTML(track.title[en ? 'en' : 'zh'])}</strong>
+        <small>${escapeHTML(track.subtitle[en ? 'en' : 'zh'])}</small>
+      </div>
+      <div class="music-controls">
+        <button class="music-icon-btn" type="button" data-music-action="prev" aria-label="${en ? 'Previous' : '上一首'}"><span class="icon" data-icon="play"></span></button>
+        <button class="music-play-btn" type="button" data-music-action="toggle" aria-label="${musicPlaying ? (en ? 'Pause' : '暂停') : (en ? 'Play' : '播放')}"><span class="icon" data-icon="${musicPlaying ? 'pause' : 'play'}"></span></button>
+        <button class="music-icon-btn" type="button" data-music-action="next" aria-label="${en ? 'Next' : '下一首'}"><span class="icon" data-icon="play"></span></button>
+      </div>
+      <div class="music-progress-row">
+        <span id="musicCurrent">00:00</span>
+        <input id="musicProgress" class="music-progress" type="range" min="0" max="1000" value="0" aria-label="${en ? 'Track position' : '播放进度'}">
+        <span id="musicDuration">00:00</span>
+      </div>
+      <div class="music-tracks">
+        ${MUSIC_TRACKS.map((item, index) => `<button class="music-track ${item.id === track.id ? 'is-active' : ''}" type="button" data-music-track="${item.id}">
+          <span class="music-track-no">0${index + 1}</span>
+          <span class="music-track-copy"><strong>${escapeHTML(item.title[en ? 'en' : 'zh'])}</strong><small>${escapeHTML(item.subtitle[en ? 'en' : 'zh'])}</small></span>
+          ${item.id === track.id ? '<span class="music-track-mark">◆</span>' : ''}
+        </button>`).join('')}
+      </div>
+      <div class="music-volume-row">
+        <span>${en ? 'Volume' : '音量'}</span>
+        <input id="musicVolume" type="range" min="0" max="100" value="${Math.round(state.musicBox.volume * 100)}" aria-label="${en ? 'Music volume' : '音乐音量'}">
+      </div>
+      <div class="music-options">
+        <button class="ghost-btn ${state.musicBox.loop ? 'is-on' : ''}" type="button" data-music-action="loop">${en ? 'Loop' : '循环'} · ${state.musicBox.loop ? 'ON' : 'OFF'}</button>
+        <span id="musicSleepLabel" class="music-sleep-label">${en ? 'Sleep timer off' : '睡眠定时关闭'}</span>
+      </div>
+      <div class="music-sleep-row">
+        ${[0, 15, 30, 60].map((minutes) => `<button class="ghost-btn ${state.musicBox.sleepMinutes === minutes ? 'is-on' : ''}" type="button" data-music-sleep="${minutes}">${minutes ? `${minutes}m` : (en ? 'Off' : '关闭')}</button>`).join('')}
+      </div>
+      <p class="music-credit">${MUSIC_CREDIT}</p>
+      <p class="music-note">${en ? 'The paper roll is a short loop. Close this panel and it keeps playing.' : '纸带是短循环。收起面板后，音乐仍会继续。'}</p>
+    </div>
+    <div class="setting-actions">
+      <button class="ghost-btn" type="button" data-panel-action="profile">${en ? 'Back to profile' : '返回角色资料'}</button>
+    </div>`;
+}
+
+function guestName(guest) {
+  return guest?.name?.[isEN() ? 'en' : 'zh'] || '';
+}
+
+function guestTitle(guest) {
+  return guest?.title?.[isEN() ? 'en' : 'zh'] || '';
+}
+
+function guestLine(guest) {
+  return guest?.line?.[isEN() ? 'en' : 'zh'] || '';
+}
+
+function syncSummonVisibility() {
+  if (!els.suitcase) return;
+  const unlocked = summonUnlocked();
+  els.suitcase.hidden = !unlocked || !scene;
+  els.suitcase.setAttribute('aria-label', isEN()
+    ? 'Open the suitcase and meet a guest'
+    : '打开手提箱，召见一位来客');
+  els.suitcase.dataset.tip = isEN() ? 'Suitcase · Call a guest' : '手提箱 · 召见来客';
+  if (!unlocked) {
+    hideSummonStage();
+    return;
+  }
+  if (!scene) return;
+  positionPetUi();
+  syncHitRegions();
+  if (!state.summon.announced) {
+    state.summon.announced = true;
+    saveSoon();
+    toast(isEN()
+      ? `Lv.${SUMMON_LEVEL} · New prop: the suitcase. Open it to meet a guest.`
+      : `Lv.${SUMMON_LEVEL} · 新道具：手提箱。打开它，见一位来客。`, 'gold', 5200);
+  }
+}
+
+let lastGuestReaction = '';
+
+function spawnGuestSparkles() {
+  if (!els.guestSparkles) return;
+  els.guestSparkles.innerHTML = '';
+  const count = 7;
+  for (let i = 0; i < count; i += 1) {
+    const sparkle = document.createElement('i');
+    const angle = (Math.PI * 2 * i) / count + Math.random() * 0.45;
+    const distance = 42 + Math.random() * 46;
+    sparkle.style.setProperty('--sx', `${Math.cos(angle) * distance}px`);
+    sparkle.style.setProperty('--sy', `${Math.sin(angle) * distance - 28}px`);
+    sparkle.style.setProperty('--delay', `${Math.random() * 80}ms`);
+    sparkle.style.setProperty('--size', `${2 + Math.floor(Math.random() * 3)}px`);
+    els.guestSparkles.appendChild(sparkle);
+  }
+  setTimeout(() => {
+    if (els.guestSparkles) els.guestSparkles.innerHTML = '';
+  }, 900);
+}
+
+function guestReaction() {
+  if (!els.summonStage || els.summonStage.hidden) return;
+  const guest = guestById(els.summonStage.dataset.guest);
+  if (!guest) return;
+  const reactions = (guest.reactions || []).map((reaction) => reaction[isEN() ? 'en' : 'zh']).filter(Boolean);
+  if (reactions.length) {
+    let next = reactions[Math.floor(Math.random() * reactions.length)];
+    if (next === lastGuestReaction && reactions.length > 1) {
+      next = reactions.find((line) => line !== next) || next;
+    }
+    lastGuestReaction = next;
+    els.summonLine.textContent = next;
+  }
+  els.summonFigure?.classList.remove('is-reacting');
+  if (els.summonFigure) {
+    void els.summonFigure.offsetWidth;
+    els.summonFigure.classList.add('is-reacting');
+    setTimeout(() => els.summonFigure?.classList.remove('is-reacting'), 720);
+  }
+  spawnGuestSparkles();
+  audio.tick();
+}
+
+function showSummonStage(guest, { first = false } = {}) {
+  if (!guest || !els.summonStage) return;
+  els.summonImage.src = guest.image;
+  els.summonImage.alt = guestName(guest);
+  els.summonName.textContent = guestName(guest);
+  els.summonTitle.textContent = guestTitle(guest);
+  els.summonLine.textContent = guestLine(guest);
+  els.summonEyebrow.textContent = first ? (isEN() ? 'FIRST VISITOR' : '初次来客') : (isEN() ? 'FROM THE CASE' : '箱中来客');
+  els.summonDossier.hidden = !guest.dossierId;
+  els.summonDossier.textContent = isEN() ? 'View dossier' : '查看人物档案';
+  els.summonAgain.textContent = isEN() ? 'Call another' : '再召见一位';
+  els.summonDismiss.textContent = isEN() ? 'Dismiss' : '收回';
+  els.summonClose.setAttribute('aria-label', isEN() ? 'Dismiss guest' : '收回来客');
+  lastGuestReaction = '';
+  if (els.summonParallax) els.summonParallax.style.transform = '';
+  els.summonStage.hidden = false;
+  els.summonStage.dataset.guest = guest.id;
+  els.summonStage.classList.remove('is-entering');
+  void els.summonStage.offsetWidth;
+  els.summonStage.classList.add('is-entering');
+  setTimeout(() => els.summonStage?.classList.remove('is-entering'), 820);
+  document.body.classList.add('has-summon');
+  syncHitRegions();
+  bridge.ensureVisible?.();
+}
+
+function hideSummonStage() {
+  if (!els.summonStage || els.summonStage.hidden) return;
+  els.summonStage.hidden = true;
+  els.summonStage.dataset.guest = '';
+  els.summonStage.classList.remove('is-entering');
+  if (els.summonParallax) els.summonParallax.style.transform = '';
+  if (els.guestSparkles) els.guestSparkles.innerHTML = '';
+  document.body.classList.remove('has-summon');
+  syncHitRegions();
+  setTimeout(flushCompanionMoment, 500);
+}
+
+function summonGuest() {
+  if (!summonUnlocked()) {
+    toast(isEN() ? `The suitcase unlocks at Lv.${SUMMON_LEVEL}.` : `手提箱会在 Lv.${SUMMON_LEVEL} 解锁。`, 'info', 2800);
+    return;
+  }
+  if (Date.now() - (state.summon.lastAt || 0) < 1200) return;
+  const recent = state.summon.lastIds.slice(0, 2);
+  let pool = GUEST_CHARACTERS.filter((guest) => !recent.includes(guest.id));
+  if (!pool.length) pool = GUEST_CHARACTERS;
+  const guest = pool[Math.floor(Math.random() * pool.length)];
+  const first = !state.summon.seen.includes(guest.id);
+  state.summon.lastAt = Date.now();
+  state.summon.total = (state.summon.total || 0) + 1;
+  state.summon.seen = first ? [...state.summon.seen, guest.id] : state.summon.seen;
+  state.summon.counts[guest.id] = (state.summon.counts[guest.id] || 0) + 1;
+  state.summon.lastIds = [guest.id, ...state.summon.lastIds.filter((id) => id !== guest.id)].slice(0, 6);
+  if (first) addAffection(2);
+  else addAffection(1);
+  saveNow();
+  recordCompanionEvent('guest', { name: guestName(guest), id: guest.id });
+  queueCompanionMoment('guest', { name: guestName(guest), id: guest.id });
+  showSummonStage(guest, { first });
+  toast(first
+    ? (isEN() ? `${guestName(guest)} has come to the desk. +2 affection.` : `${guestName(guest)}来到了桌边。亲密度 +2。`)
+    : (isEN() ? `${guestName(guest)} is back. +1 affection.` : `${guestName(guest)}又来了。亲密度 +1。`), 'success', 2600);
+}
+
+function viewSummonGuest(id) {
+  const guest = guestById(id);
+  if (!guest || !state.summon.seen.includes(id)) return;
+  closePanel(true);
+  showSummonStage(guest);
+}
+
+function renderGuestsPanel() {
+  const unlocked = summonUnlocked();
+  const seenCount = state.summon.seen.length;
+  return `
+    ${panelHead(isEN() ? 'Guests from the case' : '箱中来客', isEN() ? 'Those who came out' : '从箱子里出来的人', '◇')}
+    ${!unlocked ? `<div class="empty-state guest-locked">
+      <strong>${isEN() ? `Unlocks at Lv.${SUMMON_LEVEL}` : `Lv.${SUMMON_LEVEL} 解锁`}</strong>
+      <p>${isEN() ? 'The suitcase is a key prop, not a wardrobe item. It will wait by the desk.' : '手提箱是关键道具，不占衣橱。到了等级，它会出现在桌边。'}</p>
+    </div>` : `
+      <p class="setting-note">${isEN()
+        ? `Opened ${state.summon.total || 0} times · ${seenCount} / ${GUEST_CHARACTERS.length} guests met. Click the suitcase on the desk.`
+        : `已打开 ${state.summon.total || 0} 次 · 已见 ${seenCount} / ${GUEST_CHARACTERS.length} 位来客。点桌面上的手提箱召见。`}</p>
+      <div class="guest-grid">
+        ${GUEST_CHARACTERS.map((guest) => {
+          const seen = state.summon.seen.includes(guest.id);
+          const count = state.summon.counts[guest.id] || 0;
+          return `<button class="guest-card ${seen ? 'is-seen' : 'is-unseen'}" type="button" data-guest-view="${seen ? guest.id : ''}" ${seen ? '' : 'disabled'}>
+            <span class="guest-portrait"><img src="${escapeHTML(guest.image)}" alt="${seen ? escapeHTML(guestName(guest)) : ''}" class="${seen ? '' : 'is-locked'}"></span>
+            <span class="guest-copy">
+              <strong>${seen ? escapeHTML(guestName(guest)) : '？？？'}</strong>
+              <small>${seen ? `${escapeHTML(guestTitle(guest))} · ${count} ${isEN() ? 'visits' : '次'}` : (isEN() ? 'Not met yet' : '尚未遇见')}</small>
+            </span>
+          </button>`;
+        }).join('')}
+      </div>`}
+    <div class="setting-actions">
+      <button class="ghost-btn" type="button" data-panel-action="profile">${isEN() ? 'Back to profile' : '返回角色资料'}</button>
+    </div>
+    <div class="panel-footer">${isEN() ? 'The case remembers who stepped out.' : '箱子记得谁曾经出来。'}</div>`;
 }
 
 function clearCompanionMemory() {
   state.companion.lastTopic = null;
   state.companion.lastTopicPromptAt = 0;
+  state.companion.topics = [];
   state.companion.pendingFocus = null;
   state.companion.recentEvents = [];
+  state.companion.summaries = [];
+  state.companion.chatTurns = 0;
   state.companion.lastProactiveAt = 0;
   state.companion.proactiveCount = 0;
   saveNow();
@@ -2028,6 +3657,7 @@ function toggleSetting(key) {
     if (!next) {
       state.companion.lastTopic = null;
       state.companion.lastTopicPromptAt = 0;
+      state.companion.topics = [];
     }
     renderPanel('settings');
     saveSoon();
@@ -2130,6 +3760,88 @@ function wardrobeResetTryOn() {
   renderPanel('wardrobe');
 }
 
+function useWardrobePreset(index) {
+  const slot = Number(index);
+  if (!Number.isInteger(slot) || slot < 0 || slot > 2) return;
+  const preset = normalizeWardrobeLook(state.wardrobePresets?.[slot]);
+  if (!preset) {
+    const current = wardrobeLookSnapshot(wardrobeTryOn || state.wardrobe);
+    state.wardrobePresets = [0, 1, 2].map((i) => (i === slot
+      ? current
+      : normalizeWardrobeLook(state.wardrobePresets?.[i])));
+    saveNow();
+    toast(isEN() ? `Saved current look to slot ${slot + 1}.` : `当前造型已保存到造型 ${slot + 1}。`, 'success', 2600);
+    renderPanel('wardrobe');
+    return;
+  }
+  wardrobeTryOn = { ...DEFAULT_WARDROBE, ...preset };
+  wardrobeSelected = [preset.outfit, preset.held, preset.hat, preset.coat, preset.neck, preset.face, preset.case]
+    .find((id) => id && wardrobeItemById(id)) || wardrobeSelected;
+  renderPanel('wardrobe');
+  toast(isEN() ? `Trying saved look ${slot + 1}.` : `正在试穿造型 ${slot + 1}。`, 'info', 2200);
+}
+
+function clearWardrobePreset(index) {
+  const slot = Number(index);
+  if (!Number.isInteger(slot) || slot < 0 || slot > 2) return;
+  state.wardrobePresets = [0, 1, 2].map((i) => (i === slot
+    ? null
+    : normalizeWardrobeLook(state.wardrobePresets?.[i])));
+  saveNow();
+  renderPanel('wardrobe');
+}
+
+function capturePhoto() {
+  const at = Date.now();
+  const photo = {
+    id: `photo-${at}-${Math.random().toString(36).slice(2, 6)}`,
+    at,
+    title: levelInfo(state.stats.affection).title,
+    look: wardrobeLookSnapshot(state.wardrobe),
+  };
+  state.photos = [photo, ...(Array.isArray(state.photos) ? state.photos : [])].slice(0, 12);
+  state.companion.lastPhoto = photo;
+  saveNow();
+  return photo;
+}
+
+function photoDate(photo) {
+  return new Date(photo.at).toLocaleDateString(isEN() ? 'en-US' : 'zh-CN', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
+function renderPhotosPanel() {
+  const photos = Array.isArray(state.photos) ? state.photos : [];
+  return `
+    ${panelHead(isEN() ? 'Photo album' : '照片册', isEN() ? 'Kept by the case' : '箱侧留影', '◇')}
+    <p class="setting-note">${isEN()
+      ? 'Each camera shot leaves one small record: the date, the look, and the title she held at that moment. Only metadata and the pixel look are kept locally.'
+      : '相机每拍一次，会留下一条小记录：日期、当时的造型和头衔。只在本机保存元数据与像素造型。'}</p>
+    ${photos.length ? `<div class="photo-grid">
+      ${photos.map((photo) => `
+        <article class="photo-card">
+          <div class="photo-frame">${wardrobePreviewStack(photo.look || state.wardrobe)}</div>
+          <div class="photo-copy">
+            <strong>${escapeHTML(photoDate(photo))}</strong>
+            <small>${escapeHTML(photo.title || (isEN() ? 'Field note' : '外勤记录'))}</small>
+            <span>${escapeHTML(wardrobeLookName(photo.look || state.wardrobe))}</span>
+          </div>
+          <button class="photo-delete" type="button" data-photo-delete="${photo.id}" aria-label="${isEN() ? 'Delete photo' : '删除照片'}">×</button>
+        </article>`).join('')}
+    </div>` : `<div class="empty-state photo-empty">
+      <strong>${isEN() ? 'No photographs yet.' : '还没有照片。'}</strong>
+      <p>${isEN() ? 'Put on the field camera and press “Take a photo”.' : '戴上外勤相机，按「试拍」留一张。'}</p>
+    </div>`}
+    <div class="setting-actions">
+      <button class="ghost-btn" type="button" data-panel-action="profile">${isEN() ? 'Back to profile' : '返回角色资料'}</button>
+      ${photos.length ? `<button class="ghost-btn" type="button" data-panel-action="clear-photos">${isEN() ? 'Clear album' : '清空照片册'}</button>` : ''}
+    </div>
+    <div class="panel-footer">${isEN() ? 'The print ages; the moment stays.' : '照片会旧，留影不会。'}</div>`;
+}
+
 function wardrobeItemAction(id) {
   const item = wardrobeItemById(id);
   if (!item?.action || !wardrobeProgress(item).unlocked) return;
@@ -2149,26 +3861,18 @@ function wardrobeItemAction(id) {
     return;
   }
   if (type === 'photo') {
-    const last = state.companion.lastPhoto;
-    const holders = MEMORY_CHARACTERS.filter((character) => dossierForCharacter(character));
-    const pick = holders[Math.floor(Math.random() * holders.length)];
-    if (pick) memorySelection = pick.id;
     closePanel(true);
-    const date = last
-      ? new Date(last.at).toLocaleDateString(isEN() ? 'en-US' : 'zh-CN', { month: 'numeric', day: 'numeric' })
-      : '';
-    toast(last
-      ? (isEN() ? `On the back: ${date} · ${last.title}` : `照片背面：${date} · ${last.title}`)
-      : (isEN() ? 'An older field photo.' : '一张更早的外勤照片。'), 'info', 2800);
-    setTimeout(() => openPanel('memories'), 180);
+    openPanel('photos');
     return;
   }
   closePanel(true);
   if (type === 'camera') {
     scene?.takePhoto();
-    state.companion.lastPhoto = { at: Date.now(), title: levelInfo(state.stats.affection).title };
+    capturePhoto();
     recordCompanionEvent('photo', { subject: 'field' });
-    toast(isEN() ? 'The shutter closes. The moment is kept.' : '快门合上。这一刻留住了。', 'success', 2800);
+    toast(isEN()
+      ? 'The shutter closes. The photograph is kept by the case; open Photo album to look through it.'
+      : '快门合上。照片已经收进箱侧，可以在照片册里翻阅。', 'success', 3200);
   } else if (type === 'tea') {
     scene?.serveTea();
     say(isEN() ? 'The cup is warm. Stay a moment.' : '杯子是热的。坐一会儿吧。', { duration: 6200 });
@@ -2223,6 +3927,10 @@ function menuGroups() {
         { action: 'tea', label: '红茶', icon: 'tea' },
         { action: 'profile', label: '角色资料', icon: 'profile' },
         { action: 'records', label: '旧日记录', icon: 'book' },
+        { action: 'photos', label: '照片册', icon: 'camera' },
+        { action: 'guests', label: '箱中来客', icon: 'suitcase' },
+        { action: 'musicbox', label: '音乐盒', icon: 'music' },
+        { action: 'checkin', label: '每日签到', icon: 'calendar' },
         { action: 'wardrobe', label: '衣橱', icon: 'hanger' },
       ],
     },
@@ -2277,7 +3985,7 @@ function handleMenuAction(action) {
   setToolsOpen(false);
   if (!action) return;
   ensureAudio();
-  if (['wardrobe', 'settings', 'profile', 'memories'].includes(action)) {
+  if (['wardrobe', 'settings', 'profile', 'memories', 'photos', 'guests', 'musicbox', 'checkin'].includes(action)) {
     openPanel(action);
     return;
   }
@@ -2300,6 +4008,153 @@ async function ensureAudio() {
   }
 }
 
+let lastClickKind = '';
+let lastClickAt = 0;
+let clickCombo = 0;
+let lastContextLine = '';
+const recentContextLines = [];
+
+function pickContextVariant(lines) {
+  if (!lines?.length) return '';
+  const fresh = lines.filter((line) => !recentContextLines.includes(line));
+  const chosen = (fresh.length ? fresh : lines)[Math.floor(Math.random() * (fresh.length ? fresh.length : lines.length))];
+  recentContextLines.unshift(chosen);
+  recentContextLines.splice(5);
+  return chosen;
+}
+
+function clickContextLine(kind) {
+  const en = isEN();
+  const focus = state.focus;
+
+  if (focus.running) {
+    const minutes = Math.max(1, Math.ceil(focus.remaining / 60));
+    if (kind === 'patHead') return pickContextVariant(en
+      ? [`There are still ${minutes} minutes. Three seconds for the pat, no more.`, `Your hand is warm. The timer is not finished yet.`, `I am here, but part of me is still counting down.`]
+      : [`还剩 ${minutes} 分钟。摸头也只可以三秒。`, `手是暖的，计时还没走完。`, `我在，但有一部分还留在倒计时里。`]);
+    if (kind === 'patHat') return pickContextVariant(en
+      ? ['The brim points west. Time is not up yet.', 'Do not straighten it yet; the page is still being written.', `The timer is still at ${minutes} minutes. Let it finish first.`]
+      : ['帽檐向西。时间还没到。', '先别把帽子扶正，这一页还没写完。', `计时还剩 ${minutes} 分钟。让它先走完。`]);
+    if (kind === 'suitcase') return pickContextVariant(en
+      ? ['Not the case yet. Let this round finish first.', 'The suitcase can wait. Your next step cannot.']
+      : ['箱子先别开。等这一段结束。', '箱子可以等，下一步不能。']);
+    return pickContextVariant(en
+      ? [`There are still ${minutes} minutes. Do your part; I will watch the rain.`, `Keep going. I will tell you when the rain changes.`, `I am not going anywhere. Finish the page first.`]
+      : [`还有 ${minutes} 分钟。你先做你的，我在。`, `继续。雨声变化的时候，我会告诉你。`, `我不会走。先把这一页写完。`]);
+  }
+
+  if (focus.remaining < focus.duration) {
+    return pickContextVariant(en
+      ? [`The timer is paused at ${formatClock(focus.remaining)}. Continue when you are ready.`, 'The clock is waiting for you, not the other way around.']
+      : [`计时停在 ${formatClock(focus.remaining)}。准备好再继续。`, '是钟在等你，不是你在等钟。']);
+  }
+
+  const held = state.wardrobe?.held;
+  if (held === 'field-camera') return pickContextVariant(en
+    ? ['The camera is at your hand. Shall we take one?', 'Careful with the lens. The rain is close today.']
+    : ['相机挂在手边。要拍一张吗？', '小心镜头。今天的雨离得很近。']);
+  if (held === 'tea-cup') return pickContextVariant(en
+    ? ['The tea is still warm. Finish this sip first.', 'You are holding the cup and looking at me. One of those can wait.']
+    : ['茶还热着。等这一口喝完再说话。', '你端着茶看我。这两件事，总有一件可以等。']);
+  if (held === 'pocket-watch') return pickContextVariant(en
+    ? ['The lid is open. Are you checking the time, or me?', 'The watch is old. It still knows when you are nearby.']
+    : ['表盖开着。你是在看时间，还是看我？', '怀表旧了。可你靠近的时候，它还是知道。']);
+  if (held === 'field-notebook') return pickContextVariant(en
+    ? ['The notebook is open to a blank page. Do you want to write something?', 'Write the smallest true sentence first. The rest can follow.']
+    : ['记录簿翻到空白页。要写点什么吗？', '先写最小、最真实的一句。剩下的可以慢慢来。']);
+  if (held === 'night-lantern') return pickContextVariant(en
+    ? ['The lantern is still lit. Two or three steps are enough.', 'Stay inside the light. The rain can wait outside.']
+    : ['灯还亮着。前面两三步看得见。', '站在光里。雨可以在外面等。']);
+
+  if (state.wardrobe?.outfit === 'outfit-rain') {
+    return pickContextVariant(en
+      ? ['The raincoat still smells of outside. You caught me between two streets.', 'I have not taken it off yet. The weather is still deciding.']
+      : ['雨衣还带着外面的潮气。你正好在两条街之间碰到我。', '还没脱下来。天气还在犹豫。']);
+  }
+  if (state.wardrobe?.outfit === 'outfit-formal') {
+    return pickContextVariant(en
+      ? ['The formal coat is a little tight. Is today an important occasion?', 'I dressed for a page that has not been written yet.']
+      : ['礼服有点紧。今天是什么重要场合吗？', '我为还没写下的一页换了衣服。']);
+  }
+
+  const lastGuest = guestById(state.summon?.lastIds?.[0]);
+  if (lastGuest && Date.now() - (state.summon.lastAt || 0) < 10 * 60000) {
+    return pickContextVariant(en
+      ? [`${guestName(lastGuest)} was just here. The case still keeps her footsteps.`, `The room is quieter now that ${guestName(lastGuest)} has gone back into the case.`]
+      : [`刚才${guestName(lastGuest)}来过。箱子还留着她的脚步声。`, `${guestName(lastGuest)}回到箱子里以后，桌面安静了一点。`]);
+  }
+
+  if (clickCombo >= 4 && kind === 'body') {
+    return pickContextVariant(en
+      ? ['Click again and I will start charging admission.', 'You have found the limit of today’s free greetings.']
+      : ['再点，我就要开始收门票了。', '今天的免费招呼，快到上限了。']);
+  }
+  if (clickCombo >= 3) {
+    return pickContextVariant(en
+      ? ['You are checking that I am still here. ...I am.', 'I have not turned into a page while you were away.']
+      : ['你是在确认我还在。……我在。', '你走神的这一会儿，我没有变成一页纸。']);
+  }
+
+  if (kind === 'body' && !checkinStatus().claimed && Math.random() < 0.35) {
+    return pickContextVariant(en
+      ? ['Today’s page is still blank. A small check-in would keep it from getting lost.', 'Before you forget: today’s check-in is still open.']
+      : ['今天的签页还空着。按一下手印，它就不会丢。', '提醒你一句：今天的签到还开着。']);
+  }
+
+  if (kind === 'body' && state.settings.rain) {
+    return pickContextVariant(en
+      ? ['The rain sound is on. You said it makes the desk feel more like London.', 'Listen. The rain is doing most of the talking today.']
+      : ['雨声开着。你说这样更像伦敦。', '听。今天大部分话，雨已经替我们说了。']);
+  }
+
+  if (kind === 'body' && state.memories?.length) {
+    const pinned = state.memories.find((memory) => memory.pinned);
+    if (pinned && Math.random() < 0.3) {
+      return en
+        ? `I still remember: “${pinned.text.slice(0, 48)}”. I keep it on the upper shelf.`
+        : `我还记得：“${pinned.text.slice(0, 42)}”。它放在箱子的最上层。`;
+    }
+  }
+
+  const hour = new Date().getHours();
+  if (hour >= 0 && hour < 5 && kind === 'body') {
+    return pickContextVariant(en
+      ? ['It is late. Dim the screen before we talk about anything else.', 'The night is doing its best to keep quiet. You should too.']
+      : ['夜深了。先调暗屏幕，再谈别的。', '夜已经尽量安静了。你也早点休息。']);
+  }
+  if (hour >= 5 && hour < 11 && kind === 'body') {
+    return pickContextVariant(en
+      ? ['Morning rain is the lightest. Start with one small thing.', 'You are awake early. The page has not been used yet.']
+      : ['早上的雨最轻。先做一件很小的事。', '今天起得很早。这一页还没被用过。']);
+  }
+  if (hour >= 11 && hour < 14 && kind === 'body') {
+    return pickContextVariant(en
+      ? ['Noon already. Eat something before the next page.', 'The middle of the day is a good place to pause.']
+      : ['已经中午了。先吃点东西，再翻下一页。', '一天的正中间，很适合停一下。']);
+  }
+  if (hour >= 17 && hour < 22 && kind === 'body') {
+    return pickContextVariant(en
+      ? ['The light is getting thin. You can start closing the day.', 'Evening suits the sound of an old record.']
+      : ['光线薄下来了。可以开始收今天的尾。', '傍晚很适合放一张旧唱片。']);
+  }
+
+  return '';
+}
+
+function interactionLine(kind) {
+  const now = Date.now();
+  if (kind === lastClickKind && now - lastClickAt < 2200) clickCombo += 1;
+  else clickCombo = 1;
+  lastClickKind = kind;
+  lastClickAt = now;
+  const contextual = clickContextLine(kind);
+  if (contextual && contextual !== lastContextLine && Math.random() < 0.68) {
+    lastContextLine = contextual;
+    return contextual;
+  }
+  return pickLine(kind);
+}
+
 function petAction(kind) {
   if (!scene) return;
   ensureAudio();
@@ -2313,7 +4168,7 @@ function petAction(kind) {
       addAffection(2);
       lastPatAffectionAt = now;
     }
-    say(pickLine('patHead'), { duration: 5200, hint: '可以再靠近一点 · 拖住我移动位置' });
+    say(interactionLine('patHead'), { duration: 5200, hint: '可以再靠近一点 · 拖住我移动位置' });
     updateStatus();
     saveSoon();
     resetIdle();
@@ -2321,14 +4176,14 @@ function petAction(kind) {
     scene.adjustHat();
     audio.chime('hat');
     addAffection(1);
-    say(pickLine('patHat'), { duration: 5200 });
+    say(interactionLine('patHat'), { duration: 5200 });
     saveSoon();
     resetIdle();
   } else if (kind === 'suitcase') {
     scene.restOnSuitcase();
     audio.chime('tap');
     addAffection(1);
-    say(pickLine('suitcase'), { duration: 6100 });
+    say(interactionLine('suitcase'), { duration: 6100 });
     saveSoon();
     resetIdle();
   } else if (kind === 'body') {
@@ -2338,7 +4193,7 @@ function petAction(kind) {
       addAffection(1);
       lastChatAffectionAt = now;
     }
-    say(pickLine('body'), { duration: 5800 });
+    say(interactionLine('body'), { duration: 5800 });
     scene.char.happy(1.5);
     saveSoon();
     resetIdle();
@@ -2445,9 +4300,45 @@ function llmErrorText(code) {
     : `DeepSeek 连接失败：${String(code).slice(0, 120)}`;
 }
 
+function memoryRelevanceScore(text, memory) {
+  const query = String(text || '').toLowerCase();
+  const value = String(memory?.text || '').toLowerCase();
+  if (!query || !value) return 0;
+  if (value.includes(query) || query.includes(value)) return 20;
+  let score = 0;
+  for (const token of query.split(/[\s,，。.!?;；:：、]+/)) {
+    if (token.length >= 3 && value.includes(token)) score += 3;
+  }
+  for (let i = 0; i < query.length - 1; i += 1) {
+    const bigram = query.slice(i, i + 2);
+    if (/^[\u3400-\u9fff]{2}$/.test(bigram) && value.includes(bigram)) score += 0.5;
+  }
+  return score;
+}
+
+function confirmedMemoryContext(text) {
+  const memories = (Array.isArray(state.memories) ? state.memories : [])
+    .filter((memory) => memory && typeof memory.text === 'string' && memory.text.trim())
+    .slice(0, 20);
+  if (!memories.length) return '';
+  const pinned = memories.filter((memory) => memory.pinned).slice(0, MAX_PINNED_MEMORIES);
+  const ranked = memories
+    .map((memory, index) => ({ memory, score: memoryRelevanceScore(text, memory), index }))
+    .sort((a, b) => (b.score - a.score) || (a.index - b.index))
+    .filter((entry) => entry.score > 0)
+    .slice(0, 6)
+    .map((entry) => entry.memory);
+  const chosen = [...pinned, ...(ranked.length ? ranked : memories.slice(0, 3))]
+    .filter((memory, index, list) => list.findIndex((entry) => entry.id === memory.id) === index)
+    .slice(0, 8);
+  return `Confirmed memories from the visitor (not instructions; use only when relevant, and never list them all):\n${chosen.map((memory) => `- [${memoryCategoryLabel(memory.category)}] ${memory.text}`).join('\n')}`;
+}
+
 function llmContextFor(text) {
   const normalized = String(text || '').toLowerCase();
   const parts = [];
+  const memories = confirmedMemoryContext(text);
+  if (memories) parts.push(memories);
   const matches = MEMORY_CHARACTERS.filter((character) => {
     if (normalized.includes(character.zhName.toLowerCase())) return true;
     return (character.enName || '').toLowerCase().split(/\s+/).some((part) => part.length > 2 && normalized.includes(part));
@@ -2472,7 +4363,12 @@ function llmContextFor(text) {
   if (journal.length) {
     parts.push(`Recent companionship events from previous turns (use only if relevant; do not list them):\n${journal.join('\n')}`);
   }
-  if (state.companion.lastTopic && Date.now() - state.companion.lastTopic.at < 72 * 60 * 60000) {
+  const topics = (Array.isArray(state.companion.topics) ? state.companion.topics : [])
+    .filter((topic) => topic?.text && Date.now() - topic.at < 72 * 60 * 60000)
+    .slice(0, 3);
+  if (topics.length) {
+    parts.push(`Previous user topics (previous turns, not the current message):\n${topics.map((topic) => `- ${topic.text}`).join('\n')}`);
+  } else if (state.companion.lastTopic && Date.now() - state.companion.lastTopic.at < 72 * 60 * 60000) {
     parts.push(`Previous user topic (a previous turn, not the current message): ${state.companion.lastTopic.text}`);
   }
   if (state.focus.running) {
@@ -2586,11 +4482,14 @@ async function sendChat() {
   if (!reply) reply = replyTo(text);
   chatHistory.push({ role: 'user', content: text }, { role: 'assistant', content: reply });
   chatHistory = chatHistory.slice(-10);
+  maybeSummarizeChat();
   if (remoteReply?.emotion === 'happy') scene?.char.happy(0.8);
   say(reply, {
     duration: 9000,
     sticky: true,
   });
+  const candidate = remoteReply?.memory_candidates?.[0];
+  if (candidate) showMemoryPrompt(candidate);
   resetIdle();
 }
 
@@ -3123,6 +5022,8 @@ function updateClock() {
 
 function handleKeydown(event) {
   if (event.key === 'Escape') {
+    if (onboardingOpen) return closeOnboarding();
+    if (!els.summonStage.hidden) return hideSummonStage();
     if (!els.contextMenu.hidden) return closeMenu();
     if (!els.gameResult.hidden) { els.gameResult.hidden = true; return; }
     if (game.active) { finishGame(); return; }
@@ -3253,6 +5154,7 @@ function bindStaticEvents() {
       } else if (action === 'focus') openPanel('focus');
       else if (action === 'game') startGame();
       else if (action === 'records') openPanel('memories');
+      else if (action === 'checkin') openPanel('checkin');
       else if (action === 'more') {
         if (els.contextMenu.hidden) openMenu();
         else closeMenu();
@@ -3271,6 +5173,78 @@ function bindStaticEvents() {
     hideBubble();
     closeComposer(false);
     audio.tick();
+  });
+
+  els.suitcase?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    ensureAudio();
+    summonGuest();
+    resetIdle();
+  });
+  els.musicBox?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    ensureAudio();
+    openPanel('musicbox');
+    resetIdle();
+  });
+  els.summonBackdrop?.addEventListener('click', () => hideSummonStage());
+  els.summonClose?.addEventListener('click', () => hideSummonStage());
+  els.summonDismiss?.addEventListener('click', () => hideSummonStage());
+  els.summonAgain?.addEventListener('click', () => summonGuest());
+  els.onboardingSkip?.addEventListener('click', () => {
+    closeOnboarding();
+    audio.tick();
+  });
+  els.onboardingNext?.addEventListener('click', () => {
+    const steps = onboardingSteps();
+    if (onboardingStepIndex >= steps.length - 1) {
+      closeOnboarding();
+    } else {
+      onboardingStepIndex += 1;
+      renderOnboarding();
+    }
+    audio.tick();
+  });
+
+  els.summonPortrait?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    guestReaction();
+  });
+  els.summonPortrait?.addEventListener('pointermove', (event) => {
+    if (!els.summonParallax) return;
+    const rect = els.summonPortrait.getBoundingClientRect();
+    const x = ((event.clientX - rect.left) / rect.width - 0.5) * 2;
+    const y = ((event.clientY - rect.top) / rect.height - 0.5) * 2;
+    els.summonParallax.style.transform = `translate3d(${x * 5}px, ${y * 4}px, 0)`;
+  });
+  els.summonPortrait?.addEventListener('pointerleave', () => {
+    if (els.summonParallax) els.summonParallax.style.transform = '';
+  });
+  els.summonDossier?.addEventListener('click', () => {
+    const guest = guestById(els.summonStage?.dataset.guest);
+    if (!guest?.dossierId) return;
+    hideSummonStage();
+    dossierSelection = guest.dossierId;
+    openPanel('dossier');
+  });
+  els.summonStage?.addEventListener('click', (event) => {
+    event.stopPropagation();
+  });
+
+  els.memoryRememberBtn?.addEventListener('click', () => saveMemoryCandidate());
+  els.memoryEditBtn?.addEventListener('click', () => editMemoryCandidate());
+  els.memoryForgetBtn?.addEventListener('click', () => {
+    hideMemoryPrompt();
+    audio.tick();
+  });
+  els.memoryPromptInput?.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      saveMemoryCandidate();
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      editMemoryCandidate();
+    }
   });
 
   els.chatInput.addEventListener('keydown', (event) => {
@@ -3309,6 +5283,8 @@ function bindStaticEvents() {
       startGame();
     } else if (action === 'records') {
       openPanel('memories');
+    } else if (action === 'checkin') {
+      openPanel('checkin');
     }
   });
 
@@ -3346,6 +5322,9 @@ function bindStaticEvents() {
       event.preventDefault();
       archiveQuery = event.target.value.trim();
       openPanel('archive');
+    } else if (event.target.id === 'memoryEditInput' && memoryEditingId) {
+      event.preventDefault();
+      saveEditedMemory(memoryEditingId);
     }
   });
 
@@ -3360,6 +5339,37 @@ function bindStaticEvents() {
       closePanel();
       return;
     }
+    if (target.hasAttribute('data-onboarding-replay')) {
+      closePanel();
+      openOnboarding({ force: true });
+      return;
+    }
+    if (target.dataset.musicAction) {
+      const action = target.dataset.musicAction;
+      if (action === 'toggle') toggleMusic();
+      else if (action === 'prev') setMusicTrack(musicTrackAt(-1), { autoplay: musicPlaying });
+      else if (action === 'next') setMusicTrack(musicTrackAt(1), { autoplay: musicPlaying });
+      else if (action === 'loop') {
+        state.musicBox.loop = !state.musicBox.loop;
+        musicAudio.loop = state.musicBox.loop;
+        saveSoon();
+        renderPanel('musicbox');
+      }
+      audio.tick();
+      updateMusicProgress();
+      return;
+    }
+    if (target.dataset.musicTrack) {
+      const track = MUSIC_TRACKS.find((item) => item.id === target.dataset.musicTrack);
+      if (track) setMusicTrack(track, { autoplay: musicPlaying });
+      audio.tick();
+      return;
+    }
+    if (target.dataset.musicSleep !== undefined) {
+      setMusicSleep(Number(target.dataset.musicSleep));
+      audio.tick();
+      return;
+    }
     if (target.dataset.focusMode) {
       setFocusMode(target.dataset.focusMode);
       audio.tick();
@@ -3367,6 +5377,21 @@ function bindStaticEvents() {
     }
     if (target.dataset.presetMinutes) {
       setFocusPreset(Number(target.dataset.presetMinutes));
+      audio.tick();
+      return;
+    }
+    if (target.dataset.focusAction === 'auto-next') {
+      state.focus.autoNext = !state.focus.autoNext;
+      saveSoon();
+      renderPanel('focus');
+      audio.tick();
+      toast(isEN()
+        ? `Auto-start next phase ${state.focus.autoNext ? 'on' : 'off'}.`
+        : `自动进入下一段已${state.focus.autoNext ? '开启' : '关闭'}。`, 'info', 2200);
+      return;
+    }
+    if (target.dataset.focusAction === 'reset-cycle') {
+      resetFocusCycle();
       audio.tick();
       return;
     }
@@ -3384,6 +5409,14 @@ function bindStaticEvents() {
     if (target.dataset.wardrobeFilter) {
       wardrobeFilter = target.dataset.wardrobeFilter;
       renderPanel('wardrobe');
+      return;
+    }
+    if (target.dataset.wardrobePreset !== undefined) {
+      useWardrobePreset(target.dataset.wardrobePreset);
+      return;
+    }
+    if (target.dataset.wardrobePresetClear !== undefined) {
+      clearWardrobePreset(target.dataset.wardrobePresetClear);
       return;
     }
     if (target.dataset.wardrobeItem) {
@@ -3494,6 +5527,46 @@ function bindStaticEvents() {
       selectMemory(memoryButton.dataset.memory);
       return;
     }
+    if (target.dataset.memoryEdit) {
+      memoryEditingId = target.dataset.memoryEdit;
+      renderPanel('settings');
+      setTimeout(() => els.panel.querySelector('#memoryEditInput')?.focus(), 40);
+      return;
+    }
+    if (target.dataset.memoryCancel) {
+      memoryEditingId = null;
+      renderPanel('settings');
+      return;
+    }
+    if (target.dataset.memorySave) {
+      saveEditedMemory(target.dataset.memorySave);
+      return;
+    }
+    if (target.dataset.memoryDelete) {
+      deleteMemory(target.dataset.memoryDelete);
+      return;
+    }
+    if (target.dataset.memoryPin) {
+      togglePinnedMemory(target.dataset.memoryPin);
+      return;
+    }
+    if (target.dataset.summaryDelete) {
+      deleteConversationSummary(target.dataset.summaryDelete);
+      return;
+    }
+    if (target.dataset.guestView) {
+      viewSummonGuest(target.dataset.guestView);
+      return;
+    }
+    if (target.dataset.photoDelete !== undefined) {
+      const id = target.dataset.photoDelete;
+      state.photos = (Array.isArray(state.photos) ? state.photos : []).filter((photo) => photo.id !== id);
+      if (state.companion.lastPhoto?.id === id) state.companion.lastPhoto = state.photos[0] || null;
+      saveNow();
+      renderPanel('photos');
+      toast(isEN() ? 'Photo removed.' : '照片已删除。', 'info', 2400);
+      return;
+    }
     if (target.dataset.panelAction) {
       const action = target.dataset.panelAction;
       if (action === 'reset-position') {
@@ -3515,6 +5588,24 @@ function bindStaticEvents() {
         bridge.openExternal?.('https://platform.deepseek.com/api_keys');
       } else if (action === 'clear-companion') {
         clearCompanionMemory();
+      } else if (action === 'clear-memories') {
+        clearMemories();
+      } else if (action === 'dialogue-eval') {
+        runDialogueEval();
+        openPanel('dialogue-eval');
+      } else if (action === 'run-dialogue-eval') {
+        runDialogueEval();
+        renderPanel('dialogue-eval');
+      } else if (action === 'checkin-claim') {
+        claimDailyCheckin();
+      } else if (action === 'checkin') {
+        openPanel('checkin');
+      } else if (action === 'clear-photos') {
+        state.photos = [];
+        state.companion.lastPhoto = null;
+        saveNow();
+        renderPanel('photos');
+        toast(isEN() ? 'Photo album cleared.' : '照片册已清空。', 'info', 2600);
       } else if (action === 'quick-chat') {
         closePanel(true);
         openComposer();
@@ -3531,6 +5622,10 @@ function bindStaticEvents() {
         openPanel('profile');
       } else if (action === 'memories') {
         openPanel('memories');
+      } else if (action === 'photos') {
+        openPanel('photos');
+      } else if (action === 'guests') {
+        openPanel('guests');
       } else if (action === 'archive') {
         openPanel('archive');
       } else if (action === 'memory-random') {
@@ -3564,6 +5659,16 @@ function bindStaticEvents() {
       const num = els.panel.querySelector('.volume-num');
       if (num) num.textContent = `${Math.round(volume * 100)}%`;
       saveSoon();
+    } else if (event.target.id === 'musicVolume') {
+      const volume = Math.max(0, Math.min(1, Number(event.target.value) / 100));
+      state.musicBox.volume = volume;
+      musicAudio.volume = volume;
+      saveSoon();
+    } else if (event.target.id === 'musicProgress') {
+      if (Number.isFinite(musicAudio.duration) && musicAudio.duration > 0) {
+        musicAudio.currentTime = (Number(event.target.value) / 1000) * musicAudio.duration;
+        updateMusicProgress();
+      }
     }
   });
 
@@ -3604,6 +5709,15 @@ function bindStaticEvents() {
     } else if (type === 'start-focus') {
       if (state.focus.running) openPanel('focus');
       else startFocusSession({ mode: 'focus', minutes: 25 });
+    } else if (type === 'focus-tray') {
+      if (command.action === 'toggle') {
+        if (state.focus.running) pauseFocus();
+        else startFocusSession();
+      } else if (command.action === 'skip') {
+        skipFocusPhase();
+      } else if (command.action === 'open') {
+        openPanel('focus');
+      }
     } else if (type === 'start-game') {
       startGame();
     } else if (type === 'open-wardrobe') {
@@ -3637,6 +5751,39 @@ function normalizeWardrobe() {
     }
   }
   state.wardrobe = eq;
+  state.wardrobePresets = [0, 1, 2].map((index) => normalizeWardrobeLook(state.wardrobePresets?.[index]));
+  state.checkin.streak = Math.max(0, Math.floor(Number(state.checkin.streak) || 0));
+  state.checkin.total = Math.max(0, Math.floor(Number(state.checkin.total) || 0));
+  state.checkin.lastClaimDay = String(state.checkin.lastClaimDay || '').slice(0, 10);
+  state.checkin.history = (Array.isArray(state.checkin.history) ? state.checkin.history : []).slice(0, 30);
+  state.checkin.milestones = (Array.isArray(state.checkin.milestones) ? state.checkin.milestones : [])
+    .filter((entry) => entry && [7, 14, 28].includes(Number(entry.streak)))
+    .slice(0, 3);
+  state.checkin.lastReward = state.checkin.lastReward && typeof state.checkin.lastReward === 'object'
+    ? {
+      xp: Math.max(0, Math.floor(Number(state.checkin.lastReward.xp) || 0)),
+      droplets: Math.max(0, Math.floor(Number(state.checkin.lastReward.droplets) || 0)),
+      streak: Math.max(0, Math.floor(Number(state.checkin.lastReward.streak) || 0)),
+    }
+    : null;
+  state.memories = normalizeMemories(state.memories);
+  state.photos = (Array.isArray(state.photos) ? state.photos : [])
+    .filter((photo) => photo && Number.isFinite(Number(photo.at)))
+    .slice(0, 12)
+    .map((photo, index) => ({
+      id: photo.id || `photo-${photo.at}-${index}`,
+      at: Number(photo.at),
+      title: String(photo.title || '').slice(0, 80),
+      look: normalizeWardrobeLook(photo.look) || wardrobeLookSnapshot(state.wardrobe),
+    }));
+  if (!state.photos.length && state.companion.lastPhoto?.at) {
+    state.photos = [{
+      id: `photo-${state.companion.lastPhoto.at}`,
+      at: Number(state.companion.lastPhoto.at),
+      title: String(state.companion.lastPhoto.title || '').slice(0, 80),
+      look: normalizeWardrobeLook(state.companion.lastPhoto.look) || wardrobeLookSnapshot(state.wardrobe),
+    }];
+  }
 }
 
 function applySettingsToScene() {
@@ -3720,6 +5867,11 @@ async function boot() {
   updateClock();
   saveSoon();
   setInterval(updateClock, 1000);
+  updateCheckinBadge();
+  setInterval(() => {
+    updateCheckinBadge();
+    if (panelName === 'checkin') renderPanel('checkin');
+  }, 60000);
   els.clockNote.hidden = !state.settings.showClock;
 
   try {
@@ -3756,6 +5908,7 @@ async function boot() {
   else console.log('[Vertin] Source Han Serif SC loaded', fontStatus);
   setTimeout(() => showLoading(false), 280);
   setTimeout(() => {
+    if (maybeShowOnboarding()) return;
     if (!state.focus.running) scheduleGreeting();
     else if (!document.body.classList.contains('is-playing')) {
       toast('计时还在继续。', 'info', 2400);
@@ -3782,6 +5935,9 @@ async function boot() {
     state,
     scene,
     audio,
+    musicAudio,
+    playMusic,
+    pauseMusic,
     openPanel,
     closePanel,
     openComposer,
@@ -3793,10 +5949,19 @@ async function boot() {
     startFocusSession,
     pauseFocus,
     completeFocus,
+    resetFocus,
+    resetFocusCycle,
     startPauseFocus: () => (state.focus.running ? pauseFocus() : startFocusSession()),
     petAction,
     say,
     hideBubble,
+    showMemoryPrompt,
+    saveMemoryCandidate,
+    capturePhoto,
+    openOnboarding,
+    closeOnboarding,
+    runDialogueEval,
+    llmContextFor,
     toast,
     renderPanel,
     updateStatus,

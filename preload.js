@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('petAPI', {
   setAlwaysOnTop: (value) => ipcRenderer.invoke('set-always-on-top', Boolean(value)),
   setAutoStart: (value) => ipcRenderer.invoke('set-auto-start', Boolean(value)),
   setCompact: (value) => ipcRenderer.invoke('set-compact', Boolean(value)),
+  setFocusTray: (payload) => ipcRenderer.send('set-focus-tray', payload),
   ensureVisible: () => ipcRenderer.invoke('ensure-visible'),
   getRuntimeInfo: () => ipcRenderer.invoke('get-runtime-info'),
   notify: (payload) => ipcRenderer.invoke('notify', payload),

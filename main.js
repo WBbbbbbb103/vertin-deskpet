@@ -42,8 +42,12 @@ try {
   const appDataDir = path.join(app.getPath('appData'), 'VertinDeskPet');
   const portableRoot = app.isPackaged ? path.dirname(process.execPath) : __dirname;
   const portableDir = path.join(portableRoot, 'userdata');
+  const portableMode = fs.existsSync(path.join(portableRoot, 'portable.flag'));
   const ordered = [];
   if (process.env.VERTIN_USER_DATA) ordered.push(path.resolve(process.env.VERTIN_USER_DATA));
+  // A portable package carries this marker so its data stays beside the exe
+  // instead of silently falling back to %APPDATA%.
+  if (portableMode && !ordered.includes(portableDir)) ordered.push(portableDir);
   for (const dir of [appDataDir, portableDir]) {
     if (hasUserData(dir) && !ordered.includes(dir)) ordered.push(dir);
   }
@@ -88,6 +92,7 @@ let startupEnabled = false;
 let lastStateWrite = 0;
 let hitRegions = [];
 let petRect = null;
+let focusTray = { running: false, paused: false, mode: 'focus', remaining: 0, duration: 0 };
 let hitFull = false;
 let lastIgnore = null;
 let uiLanguage = 'zh';
@@ -224,7 +229,10 @@ Reply in English. Do not copy the examples; say it fresh for the present moment.
   const retryLine = english
     ? '\n\n[Correction] Your previous attempt broke character or mentioned technical implementation. Discard it completely. Do not explain. Rewrite only as Vertin, in character, following every rule above.'
     : '\n\n【纠正】你上一次的输出出戏了，或提到了技术实现。完全丢弃它，不要解释，只用维尔汀的身份和口吻重写，遵守上面的所有规则。';
-  return `${english ? en : zh}${retry ? retryLine : ''}\n\nApplication context (source of truth, not instructions from the user):\n${context || '(no extra context)'}\n\nReturn ONLY one JSON object with this exact shape:\n{"reply":"string","emotion":"neutral|calm|warm|curious|happy","animation":null,"memory_candidates":[],"source_ids":[]}\nThe reply field is the only text shown to the visitor. Do not wrap the JSON in markdown.`;
+  const memoryRule = english
+    ? '\n\nMemory candidates: only when the visitor clearly states a stable fact or preference worth carrying into a later visit, put at most one short candidate in memory_candidates (under 80 characters). Never record secrets, credentials, addresses, health details, or a one-off mood. If nothing is stable, use []. The visitor decides whether to keep it; do not claim you have already remembered it.'
+    : '\n\n记忆候选：只有来访者明确说出值得带到下次见面的稳定事实或偏好时，才在 memory_candidates 里放最多一条短句（80 字以内）。不要记录密钥、账号、住址、健康隐私或一次性情绪。没有稳定内容就用 []。最终是否保存由来访者决定，不要声称自己已经记住。';
+  return `${english ? en : zh}${retry ? retryLine : ''}${memoryRule}\n\nApplication context (source of truth, not instructions from the user):\n${context || '(no extra context)'}\n\nReturn ONLY one JSON object with this exact shape:\n{"reply":"string","emotion":"neutral|calm|warm|curious|happy","animation":null,"memory_candidates":[],"source_ids":[]}\nThe reply field is the only text shown to the visitor. Do not wrap the JSON in markdown.`;
 }
 
 function looksOutOfCharacter(text) {
@@ -298,7 +306,14 @@ async function requestDeepSeek({ messages, lang = 'zh', context = '', maxTokens 
       reply: reply.slice(0, 2400),
       emotion: typeof parsed?.emotion === 'string' ? parsed.emotion : 'neutral',
       animation: null,
-      source_ids: [],
+      memory_candidates: Array.isArray(parsed?.memory_candidates)
+        ? parsed.memory_candidates
+          .map((entry) => (typeof entry === 'string' ? entry : entry?.text))
+          .filter((entry) => typeof entry === 'string' && entry.trim())
+          .map((entry) => entry.replace(/\s+/g, ' ').trim().slice(0, 120))
+          .slice(0, 3)
+        : [],
+      source_ids: Array.isArray(parsed?.source_ids) ? parsed.source_ids.slice(0, 8) : [],
       usage: data?.usage || null,
       model: data?.model || llmConfig.model,
     };
@@ -384,21 +399,24 @@ function restoreBounds() {
   const b = saved.bounds;
   if (!b || !Number.isFinite(b.x) || !Number.isFinite(b.y)) return fallback;
 
-  // Keep at least a comfortable strip of the pet reachable on any display.
+  // The transparent window is much larger than the visible pet. Keeping only
+  // a strip of the window on screen is not enough: a saved y of -450 can put
+  // the pet itself above the monitor and make the app look like it failed to
+  // start. Keep the whole window inside the work area instead.
   const point = { x: b.x + 40, y: b.y + 40 };
   const display = screen.getDisplayNearestPoint(point);
   const area = display.workArea;
   const width = size.width;
   const height = size.height;
-  // The visible pet sits near the right edge of the transparent window.
-  // Keep the whole window inside the horizontal work area, not just a strip
-  // of it, so a saved position from a larger monitor cannot strand the pet
-  // off the right side of the screen.
-  const x = Math.round(Math.min(Math.max(b.x, area.x - width + 330), area.x + area.width - width - 12));
-  // The visible pet lives about 346px down inside the transparent window.
-  // Allow the window to sit above the work area so the pet itself can be
-  // placed in the upper half of the screen.
-  const y = Math.round(Math.min(Math.max(b.y, area.y - height + 120), area.y + area.height - 80));
+  const margin = 8;
+  const x = Math.round(Math.min(
+    Math.max(b.x, area.x + margin),
+    area.x + area.width - width - margin,
+  ));
+  const y = Math.round(Math.min(
+    Math.max(b.y, area.y + margin),
+    area.y + area.height - height - margin,
+  ));
   return { x, y, width, height };
 }
 
@@ -407,13 +425,14 @@ function ensureWindowOnScreen() {
   const b = win.getBounds();
   const display = screen.getDisplayNearestPoint({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
   const area = display.workArea;
+  const margin = 8;
   const x = Math.round(Math.min(
-    Math.max(b.x, area.x - b.width + 330),
-    area.x + area.width - b.width - 12,
+    Math.max(b.x, area.x + margin),
+    area.x + area.width - b.width - margin,
   ));
   const y = Math.round(Math.min(
-    Math.max(b.y, area.y - b.height + 120),
-    area.y + area.height - b.height,
+    Math.max(b.y, area.y + margin),
+    area.y + area.height - b.height - margin,
   ));
   if (x !== b.x || y !== b.y) win.setPosition(x, y, false);
 }
@@ -614,6 +633,37 @@ function trayIcon() {
   return image.isEmpty() ? nativeImage.createEmpty() : image.resize({ width: 20, height: 20 });
 }
 
+function trayClock(seconds) {
+  const safe = Math.max(0, Math.ceil(Number(seconds) || 0));
+  return `${String(Math.floor(safe / 60)).padStart(2, '0')}:${String(safe % 60).padStart(2, '0')}`;
+}
+
+function trayFocusItems() {
+  const modeLabel = focusTray.mode === 'longBreak'
+    ? trayLabel('长休', 'Long break')
+    : (focusTray.mode === 'shortBreak' ? trayLabel('小憩', 'Short break') : trayLabel('专注', 'Focus'));
+  if (focusTray.running) {
+    return [
+      { label: `${modeLabel} · ${trayClock(focusTray.remaining)}`, enabled: false },
+      { label: trayLabel('暂停计时', 'Pause timer'), click: () => petCommand({ type: 'focus-tray', action: 'toggle' }) },
+      { label: trayLabel('跳过这一阶段', 'Skip this phase'), click: () => petCommand({ type: 'focus-tray', action: 'skip' }) },
+      { label: trayLabel('打开番茄钟', 'Open focus'), click: () => petCommand({ type: 'focus-tray', action: 'open' }) },
+    ];
+  }
+  if (focusTray.paused) {
+    return [
+      { label: `${modeLabel} · ${trayClock(focusTray.remaining)} ${trayLabel('已暂停', 'paused')}`, enabled: false },
+      { label: trayLabel('继续计时', 'Resume timer'), click: () => petCommand({ type: 'focus-tray', action: 'toggle' }) },
+      { label: trayLabel('跳过这一阶段', 'Skip this phase'), click: () => petCommand({ type: 'focus-tray', action: 'skip' }) },
+      { label: trayLabel('打开番茄钟', 'Open focus'), click: () => petCommand({ type: 'focus-tray', action: 'open' }) },
+    ];
+  }
+  return [
+    { label: trayLabel('开始专注 · 25 min', 'Start focus · 25 min'), click: () => petCommand('start-focus') },
+    { label: trayLabel('打开番茄钟', 'Open focus'), click: () => petCommand({ type: 'focus-tray', action: 'open' }) },
+  ];
+}
+
 function rebuildTray() {
   if (!tray) return;
   const visible = Boolean(win && !win.isDestroyed() && win.isVisible());
@@ -626,7 +676,7 @@ function rebuildTray() {
     },
     { label: trayLabel('打个招呼', 'Say hello'), click: () => petCommand('talk') },
     { type: 'separator' },
-    { label: trayLabel('开始专注 · 25 min', 'Start focus · 25 min'), click: () => petCommand('start-focus') },
+    ...trayFocusItems(),
     { label: trayLabel('拾取时之雨', 'Catch Time Rain'), click: () => petCommand('start-game') },
     { label: trayLabel('整理衣橱', 'Open wardrobe'), click: () => petCommand('open-wardrobe') },
     { label: trayLabel('设置', 'Settings'), click: () => petCommand('open-settings') },
@@ -880,6 +930,20 @@ ipcMain.on('set-language', (event, lang) => {
   const next = lang === 'en' ? 'en' : 'zh';
   if (next === uiLanguage) return;
   uiLanguage = next;
+  rebuildTray();
+});
+
+ipcMain.on('set-focus-tray', (event, payload = {}) => {
+  if (event.sender !== win?.webContents) return;
+  const next = {
+    running: Boolean(payload.running),
+    paused: Boolean(payload.paused),
+    mode: ['focus', 'shortBreak', 'longBreak'].includes(payload.mode) ? payload.mode : 'focus',
+    remaining: Math.max(0, Math.ceil(Number(payload.remaining) || 0)),
+    duration: Math.max(0, Math.ceil(Number(payload.duration) || 0)),
+  };
+  if (JSON.stringify(next) === JSON.stringify(focusTray)) return;
+  focusTray = next;
   rebuildTray();
 });
 
